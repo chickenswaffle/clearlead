@@ -1,7 +1,53 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ClearLead</title><style>
-:root{color-scheme:dark;font-family:ui-sans-serif,system-ui;background:#0d1117;color:#e6edf3}body{margin:0}.wrap{max-width:760px;margin:0 auto;padding:48px 20px}h1{font-size:clamp(2rem,7vw,4rem);margin:0}h2{margin-top:42px}.eyebrow{color:#7ee787;text-transform:uppercase;letter-spacing:.12em;font-size:.75rem}.sub{max-width:640px;color:#9da7b3;line-height:1.6}.card{border:1px solid #30363d;border-radius:16px;padding:20px;background:#161b22;margin-top:20px}input,button{font:inherit;border-radius:10px;padding:13px;border:1px solid #30363d}input{box-sizing:border-box;width:100%;background:#0d1117;color:#e6edf3}button{margin-top:10px;background:#2f81f7;color:#fff;cursor:pointer}button[disabled]{opacity:.5;cursor:not-allowed}.result{margin-top:16px;border-left:4px solid #d29922;padding:12px;background:#0d1117}.result.live{border-color:#3fb950}.result.closed{border-color:#f85149}.why{color:#9da7b3;font-size:.9rem;line-height:1.5}.lead{border-top:1px solid #30363d;padding:14px 0}.status{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}.live .status{color:#7ee787}.closed .status{color:#ff7b72}.inconclusive .status{color:#d29922}.quiet{color:#9da7b3;font-size:.85rem}</style></head>
-<body><main class="wrap"><p class="eyebrow">Local-first job control</p><h1>Verify it first.</h1><p class="sub">No dashboard theater. Paste a role, inspect the evidence, and save it only when it is live. This tool never applies for you.</p>
-<section class="card"><label for="job-url">Job posting URL</label><input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url"><button id="verify">Check if it is live</button><div id="result" aria-live="polite"></div></section>
-<section><h2>Your confirmed leads</h2><p class="quiet">Saved leads keep the source URL, final destination, HTTP result, timestamp, and the reason they were called live.</p><div id="leads"></div></section>
-</main><script src="/app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClearLead</title>
+  <style>
+    :root{color-scheme:dark;font-family:ui-sans-serif,system-ui;background:#0d1117;color:#e6edf3}body{margin:0}.wrap{max-width:820px;margin:0 auto;padding:48px 20px}h1{font-size:clamp(2rem,7vw,4rem);margin:0}h2{margin-top:42px}.eyebrow{color:#7ee787;text-transform:uppercase;letter-spacing:.12em;font-size:.75rem}.sub{max-width:680px;color:#9da7b3;line-height:1.6}.card{border:1px solid #30363d;border-radius:16px;padding:20px;background:#161b22;margin-top:20px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}label{display:block;margin-bottom:6px;color:#c9d1d9}input,button{font:inherit;border-radius:10px;padding:13px;border:1px solid #30363d}input{box-sizing:border-box;width:100%;background:#0d1117;color:#e6edf3}button{margin-top:10px;background:#2f81f7;color:#fff;cursor:pointer}button.secondary{background:#21262d}button[disabled]{opacity:.5;cursor:not-allowed}.result{margin-top:16px;border-left:4px solid #d29922;padding:12px;background:#0d1117}.result.live{border-color:#3fb950}.result.closed{border-color:#f85149}.why{color:#9da7b3;font-size:.9rem;line-height:1.5}.lead,.found{border-top:1px solid #30363d;padding:14px 0}.status{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}.live .status{color:#7ee787}.closed .status{color:#ff7b72}.inconclusive .status,.blocked .status{color:#d29922}.quiet{color:#9da7b3;font-size:.85rem}.ready{color:#7ee787}.not-ready{color:#d29922}.found h3{margin:.25rem 0}.found button{margin-right:8px}@media(max-width:620px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">Local-first job control</p>
+  <h1>Verify it first.</h1>
+  <p class="sub">No dashboard theater. Find or paste a role, inspect the evidence, and save it only when the posting is live. ClearLead never applies for you.</p>
+
+  <section class="card">
+    <label for="job-url">Job posting URL</label>
+    <input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url">
+    <button id="verify">Check if it is live</button>
+    <div id="result" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>Tell ClearLead what fits</h2>
+    <p class="quiet">Stored only on this machine. A target role is enough to enable simple, explainable relevance signals.</p>
+    <div class="grid">
+      <div><label for="target-roles">Target roles</label><input id="target-roles" placeholder="Staff Engineer, ML Platform Engineer"></div>
+      <div><label for="locations">Locations</label><input id="locations" placeholder="Remote, Chicago"></div>
+      <div class="full"><label for="must-haves">Must-haves</label><input id="must-haves" placeholder="Remote, salary listed, Python"></div>
+    </div>
+    <button id="save-profile">Save profile</button>
+    <p id="readiness" class="quiet"></p>
+  </section>
+
+  <section class="card">
+    <h2>Discover from Greenhouse</h2>
+    <p class="quiet">Enter the board token from a company’s Greenhouse URL. Results come from Greenhouse’s published feed, but each role still needs a live verification before saving.</p>
+    <label for="greenhouse-board">Board token</label>
+    <input id="greenhouse-board" placeholder="openai">
+    <button id="discover">Find published roles</button>
+    <div id="discovery" aria-live="polite"></div>
+  </section>
+
+  <section>
+    <h2>Your review queue</h2>
+    <p class="quiet">Saved leads keep the source URL, final destination, HTTP result, timestamp, and the exact reason they were called live.</p>
+    <div id="leads"></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
