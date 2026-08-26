@@ -6,7 +6,7 @@ export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 200, 
     return { source: "greenhouse", board: token, jobs: [], error: "Enter a valid Greenhouse board token." };
   }
 
-  const endpoint = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs`;
+  const endpoint = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs?content=true`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -30,6 +30,7 @@ export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 200, 
         location: String(job.location?.name || "Location not listed"),
         url: String(job.absolute_url || ""),
         postedAt: job.updated_at || null,
+        ...(job.content ? { description: stripHtml(job.content) } : {}),
       }))
       .filter((job) => isHttpUrl(job.url));
 
@@ -46,6 +47,10 @@ export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 200, 
   } finally {
     clearTimeout(timer);
   }
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
 }
 
 function isHttpUrl(value) {

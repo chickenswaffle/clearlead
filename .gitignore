@@ -1,3 +1,6 @@
 data/*.json
 data/tailored/
+data/kits/
+data/credentials.enc
+data/.credential-key
 !data/.gitkeep

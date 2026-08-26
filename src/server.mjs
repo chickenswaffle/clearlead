@@ -11,6 +11,9 @@ import { searchPublishedRoles } from "./search.mjs";
 import { createSourceDiscovery } from "./sources.mjs";
 import { resumeSummary } from "./resume.mjs";
 import { tailorResume } from "./tailor.mjs";
+import { createCredentialVault } from "./vault.mjs";
+import { createProviderClient } from "./ai-providers.mjs";
+import { buildApplicationKit } from "./ai-resume.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -18,12 +21,15 @@ export function createAppServer({
   verifyFn = verifyPosting,
   discoverFn,
   discoverSourceFn,
+  aiClient = createProviderClient(),
 } = {}) {
   const store = createStore(dataDir);
+  const vault = createCredentialVault(dataDir);
   const greenhouseFn = discoverFn || discoverGreenhouse;
   const sourceDiscovery = discoverSourceFn || (discoverFn ? null : createSourceDiscovery());
   const liveVerifications = new Map();
   const discoveredJobs = new Map();
+  const aiConsents = new Map();
 
   return http.createServer(async (req, res) => {
     if (!isTrustedLocalRequest(req)) return json(res, 403, { error: "ClearLead only accepts requests from this local app." });
@@ -39,6 +45,15 @@ export function createAppServer({
         const item = store.tailoredFile(url.pathname.split("/").pop());
         if (!item) return json(res, 404, { error: "Tailored draft not found." });
         return sendDownload(res, item.file, item.filename, "text/markdown");
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/kits/")) {
+        const [, , , id, artifact] = url.pathname.split("/");
+        const item = store.applicationKitFile(id, artifact);
+        if (!item) return json(res, 404, { error: "Application-kit artifact not found." });
+        return sendDownload(res, item.file, item.filename, item.type);
+      }
+      if (req.method === "GET" && url.pathname === "/api/ai") {
+        return json(res, 200, { ...vault.status(), privacy: "Your key stays server-side. Resume data is sent only when you explicitly build an AI application kit." });
       }
       if (req.method === "GET" && url.pathname === "/api/leads") {
         const profile = store.profile();
@@ -109,6 +124,72 @@ export function createAppServer({
           absentTerms: saved.absentTerms,
           preview: saved.markdown.slice(0, 12_000),
         });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ai/provider") {
+        const request = await body(req);
+        const status = vault.save({ provider: request.provider, model: request.model, apiKey: request.apiKey });
+        return json(res, 200, { ...status, message: "Provider saved in the local encrypted vault. No resume data was sent." });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ai/test") {
+        const secret = vault.load();
+        if (!secret) throw new Error("Save a provider key before testing the connection.");
+        return json(res, 200, await aiClient.testConnection(secret));
+      }
+      if (req.method === "POST" && url.pathname === "/api/ai/provider/remove") {
+        return json(res, 200, { ...vault.remove(), message: "The encrypted provider credential was removed from ClearLead." });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ai/consent") {
+        const { verificationId } = await body(req);
+        const verified = liveVerifications.get(verificationId);
+        if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live" || !verified.job?.title) throw new Error("Verify this ranked role again before authorizing an AI application kit.");
+        const secret = vault.load();
+        if (!secret) throw new Error("Configure OpenRouter, OpenAI, or Anthropic before building an AI application kit.");
+        const resume = store.resume();
+        if (!resumeSummary(resume).ready) throw new Error("Add a complete resume before authorizing an AI application kit.");
+        pruneAiConsents(aiConsents);
+        const consentId = randomUUID();
+        aiConsents.set(consentId, {
+          verificationId,
+          provider: secret.provider,
+          model: secret.model,
+          providerSavedAt: secret.savedAt,
+          resumeSavedAt: resume.savedAt,
+          jobUrl: verified.lead.finalUrl || verified.lead.url,
+          state: "ready",
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
+        return json(res, 200, { consentId, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), provider: secret.provider, model: secret.model, resumeSavedAt: resume.savedAt, jobUrl: verified.lead.finalUrl || verified.lead.url });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ai/kit") {
+        const { verificationId, consentId } = await body(req);
+        const verified = liveVerifications.get(verificationId);
+        if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live") {
+          throw new Error("Verify this role again before building an AI application kit.");
+        }
+        if (verified.used.aiKit) throw new Error("This verification is already building or built an AI kit. Verify again to create another model draft.");
+        if (!verified.job?.title) throw new Error("AI kits require a role discovered through the ranked search pool.");
+        const secret = vault.load();
+        if (!secret) throw new Error("Configure OpenRouter, OpenAI, or Anthropic before building an AI application kit.");
+        const resume = store.resume();
+        const consent = aiConsents.get(consentId);
+        const jobUrl = verified.lead.finalUrl || verified.lead.url;
+        if (!consent || consent.expiresAt <= Date.now() || consent.state !== "ready" || consent.verificationId !== verificationId || consent.provider !== secret.provider || consent.model !== secret.model || consent.providerSavedAt !== secret.savedAt || consent.resumeSavedAt !== resume.savedAt || consent.jobUrl !== jobUrl) {
+          throw new Error("The AI authorization is missing, expired, or no longer matches this provider, resume, and verified job. Confirm the send again.");
+        }
+        consent.state = "in_progress";
+        verified.used.aiKit = "in_progress";
+        const job = { ...verified.job, ...verified.lead, status: "live" };
+        try {
+          const kit = await buildApplicationKit({ resumeText: resume.text, job, generateText: (request) => aiClient.generate(secret, request) });
+          const saved = store.saveApplicationKit(job, kit);
+          consent.state = "used";
+          verified.used.aiKit = true;
+          return json(res, 200, { id: saved.id, createdAt: saved.createdAt, provider: secret.provider, model: secret.model, preview: saved.preview, matchedTerms: saved.matchedTerms, gaps: saved.gaps, audit: saved.audit, downloads: Object.fromEntries(Object.entries(saved.files).map(([name, item]) => [name, item.downloadUrl])) });
+        } catch (error) {
+          if (consent.state === "in_progress") consent.state = "ready";
+          if (verified.used.aiKit === "in_progress") verified.used.aiKit = false;
+          throw error;
+        }
       }
       if (req.method === "POST" && url.pathname === "/api/profile") {
         const profile = await body(req);
@@ -207,10 +288,15 @@ function pruneVerifications(verifications) {
     if (verification.expiresAt <= now) verifications.delete(id);
   }
 }
+function pruneAiConsents(consents) {
+  const now = Date.now();
+  for (const [id, consent] of consents) if (consent.expiresAt <= now || consent.state === "used") consents.delete(id);
+  while (consents.size > 2_000) consents.delete(consents.keys().next().value);
+}
 function rememberVerification(verifications, lead, job = {}) {
   const verificationId = randomUUID();
   pruneVerifications(verifications);
-  verifications.set(verificationId, { lead, job, used: { save: false, tailor: false }, expiresAt: Date.now() + 30 * 60 * 1000 });
+  verifications.set(verificationId, { lead, job, used: { save: false, tailor: false, aiKit: false }, expiresAt: Date.now() + 30 * 60 * 1000 });
   return verificationId;
 }
 export async function autoVerify(jobs, limit, verifyFn, verifications, discoveredJobs) {
@@ -256,7 +342,7 @@ function combinedReadiness(profile, resume) {
       : "Resume required — paste it below before searching the job pool.",
   };
 }
-function json(res, status, value) { res.writeHead(status, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(value)); }
+function json(res, status, value) { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }); res.end(JSON.stringify(value)); }
 function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
 function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"` }); res.end(fs.readFileSync(file)); }
 function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 500_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }

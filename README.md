@@ -1,6 +1,6 @@
 # ClearLead
 
-ClearLead is a local-first job-search tool that indexes large public job sources, ranks postings from resume evidence, verifies the best matches, and creates grounded tailored resume drafts.
+ClearLead is a local-first job-search tool that indexes large public job sources, ranks postings from resume evidence, verifies the best matches, and creates grounded application kits.
 
 It is intentionally evidence-first: discovery can call a role published, but only the verifier can call it live.
 
@@ -20,8 +20,18 @@ Open `http://localhost:4173`.
 3. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/freshness breakdown.
 4. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
 5. Save only a server-verified live role to the local review queue.
-6. Create a tailored Markdown resume for a verified-live role. Tailoring changes emphasis by reordering existing resume bullets; job-description claims are never inserted into the resume.
-7. Optional auto-refresh repeats the saved search every 2, 5, 15, or 30 minutes while the app is open. Broad feeds are cached according to their public API guidance.
+6. Create a local-only tailored Markdown resume for a verified-live role. This deterministic fallback reorders existing bullets and never calls a model.
+7. Optionally add your own OpenRouter, OpenAI API, or Anthropic API key and model ID. Saving and testing the key sends no resume data. An OpenAI API key is separate from a ChatGPT subscription.
+8. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
+9. Optional auto-refresh repeats the saved search every 2, 5, 15, or 30 minutes while the app is open. Broad feeds are cached according to their public API guidance.
+
+## AI safety and local credentials
+
+- API keys are kept out of browser storage and API responses. ClearLead stores one selected provider credential in a private AES-256-GCM vault under `data/`; both the encrypted vault and its machine-local key file are mode `0600` and ignored by Git.
+- A resume and verified job description leave the machine only when the user confirms **Build AI kit**. ClearLead never submits, sends, or applies to a job.
+- Job descriptions are treated as untrusted data. The model must attach resume line IDs to every candidate claim.
+- The model may select and prioritize resume source-line IDs, but it is never trusted to author prose. Resume, fit, cover-letter evidence, and interview talking points use verbatim source lines; fit gaps, keywords, and questions are computed locally from the verified posting and resume. Any model-authored prose is rejected and recorded in `claim-audit.json`.
+- Generated Markdown remains a draft for human review. The deterministic local tailor is always available when no key is configured or a model is unavailable.
 
 The interface takes visual cues from [virobit.dev](https://virobit.dev): terminal typography, near-black panels, compact status signals, and restrained green/blue accents.
 

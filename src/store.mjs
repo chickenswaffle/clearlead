@@ -11,6 +11,7 @@ export function createStore(dataDir) {
   const searchStatePath = path.join(dataDir, "search-state.json");
   const resumePath = path.join(dataDir, "resume.json");
   const tailoredPath = path.join(dataDir, "tailored");
+  const kitsPath = path.join(dataDir, "kits");
 
   function read(file, fallback) {
     try {
@@ -93,6 +94,37 @@ export function createStore(dataDir) {
       const filename = fs.readdirSync(tailoredPath).find((name) => name.endsWith(suffix));
       if (!filename) return null;
       return { filename, file: path.join(tailoredPath, filename) };
+    },
+    saveApplicationKit(job, kit) {
+      const id = crypto.randomUUID();
+      const directory = path.join(kitsPath, id);
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const files = {};
+      for (const [artifact, content] of Object.entries(kit.files || {})) {
+        if (!/^(resume|fit-report|cover-letter|interview-prep|claim-audit)$/.test(artifact)) continue;
+        const extension = artifact === "claim-audit" ? "json" : "md";
+        const filename = `${slug(job.company)}-${slug(job.title)}-${artifact}.${extension}`;
+        const file = path.join(directory, filename);
+        const descriptor = fs.openSync(file, "wx", 0o600);
+        try {
+          fs.writeFileSync(descriptor, String(content), "utf8");
+          fs.fsyncSync(descriptor);
+        } finally {
+          fs.closeSync(descriptor);
+        }
+        files[artifact] = { filename, file, downloadUrl: `/api/kits/${id}/${artifact}` };
+      }
+      return { ...kit, id, createdAt: new Date().toISOString(), files };
+    },
+    applicationKitFile(id, artifact) {
+      if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
+      if (!/^(resume|fit-report|cover-letter|interview-prep|claim-audit)$/.test(String(artifact || ""))) return null;
+      const directory = path.join(kitsPath, String(id));
+      if (!fs.existsSync(directory)) return null;
+      const suffix = `-${artifact}.${artifact === "claim-audit" ? "json" : "md"}`;
+      const filename = fs.readdirSync(directory).find((name) => name.endsWith(suffix));
+      if (!filename) return null;
+      return { filename, file: path.join(directory, filename), type: artifact === "claim-audit" ? "application/json" : "text/markdown" };
     },
     saveLiveLead(lead) {
       if (lead.status !== "live") throw new Error("Only live leads can be saved.");

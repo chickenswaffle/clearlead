@@ -13,6 +13,7 @@ let resumeReady = false;
 let refreshTimer = null;
 let countdownTimer = null;
 let searching = false;
+let aiState = {configured: false, provider: '', model: ''};
 
 document.querySelector('#verify').addEventListener('click', () => runVerification());
 document.querySelector('#save-profile').addEventListener('click', saveProfile);
@@ -26,6 +27,69 @@ document.querySelector('#search-top').addEventListener('click', () => {
 document.querySelector('#role-query').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') searchJobs();
 });
+document.querySelector('#save-provider').addEventListener('click', saveProvider);
+document.querySelector('#test-provider').addEventListener('click', testProvider);
+document.querySelector('#remove-provider').addEventListener('click', removeProvider);
+document.querySelector('#ai-provider').addEventListener('change', updateModelPlaceholder);
+
+function updateModelPlaceholder() {
+  const provider = document.querySelector('#ai-provider').value;
+  document.querySelector('#ai-model').placeholder = provider === 'openrouter' ? 'e.g. openai/gpt-5.4 or your preferred model' : provider === 'openai' ? 'A model enabled for your OpenAI API account' : 'A Claude model enabled for your API account';
+}
+
+async function saveProvider() {
+  const button = document.querySelector('#save-provider');
+  button.disabled = true;
+  showAIMessage('Encrypting provider settings locally…');
+  try {
+    aiState = await requestJson('/api/ai/provider', {method: 'POST', body: JSON.stringify({provider: document.querySelector('#ai-provider').value, model: document.querySelector('#ai-model').value.trim(), apiKey: document.querySelector('#ai-key').value.trim()})});
+    document.querySelector('#ai-key').value = '';
+    showAI(aiState);
+    showAIMessage(aiState.message, 'ok');
+  } catch (error) { showAIMessage(error.message, 'error'); }
+  finally { button.disabled = false; }
+}
+
+async function testProvider() {
+  const button = document.querySelector('#test-provider');
+  button.disabled = true;
+  showAIMessage('Testing the saved key without sending resume data…');
+  try {
+    const outcome = await requestJson('/api/ai/test', {method: 'POST', body: '{}'});
+    showAIMessage(outcome.message, 'ok');
+  } catch (error) { showAIMessage(error.message, 'error'); }
+  finally { button.disabled = false; }
+}
+
+async function removeProvider() {
+  const button = document.querySelector('#remove-provider');
+  button.disabled = true;
+  try {
+    aiState = await requestJson('/api/ai/provider/remove', {method: 'POST', body: '{}'});
+    showAI(aiState);
+    showAIMessage(aiState.message, 'ok');
+  } catch (error) { showAIMessage(error.message, 'error'); }
+  finally { button.disabled = false; }
+}
+
+function showAI(state = {}) {
+  aiState = state;
+  const status = document.querySelector('#ai-status');
+  status.className = `readiness ${state.configured ? 'ready' : 'not-ready'}`;
+  status.textContent = state.configured ? `${providerName(state.provider)} · ${state.model} · ${state.keyHint}` : 'Optional — local tailoring works without a key.';
+  if (state.configured) {
+    document.querySelector('#ai-provider').value = state.provider;
+    document.querySelector('#ai-model').value = state.model;
+    document.querySelector('#ai-key-hint').textContent = `${state.keyHint} saved. Leave the key blank to keep it while changing the model.`;
+  } else document.querySelector('#ai-key-hint').textContent = 'The browser never receives a saved key.';
+  updateModelPlaceholder();
+}
+
+function showAIMessage(message, type = '') {
+  const output = document.querySelector('#ai-result');
+  output.className = `provider-result span-2 ${type}`;
+  output.textContent = message || '';
+}
 
 async function loadResumeFile(event) {
   const file = event.target.files?.[0];
@@ -167,7 +231,7 @@ function jobCard(job) {
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
   const actions = status === 'live'
-    ? `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor resume</button>`
+    ? `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
       : `<button class="button primary" data-verify-url="${escape(job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'live' : 'again'}</button>`;
@@ -195,6 +259,7 @@ function wireJobActions(container) {
   })));
   container.querySelectorAll('[data-save]').forEach((button) => button.addEventListener('click', () => queueLead(button.dataset.save, button)));
   container.querySelectorAll('[data-tailor]').forEach((button) => button.addEventListener('click', () => createTailoredDraft(button.dataset.tailor, button)));
+  container.querySelectorAll('[data-kit]').forEach((button) => button.addEventListener('click', () => createApplicationKit(button.dataset.kit, button)));
 }
 
 async function runVerification(discoveredUrl, metadata = {}) {
@@ -219,7 +284,7 @@ function renderResult(check) {
   result.innerHTML = `<div class="status">${escape(check.status || 'invalid request')}</div><strong>${escape(check.reason || check.error)}</strong><p class="why">${check.checkedAt ? `checked ${new Date(check.checkedAt).toLocaleString()}` : ''}${check.httpStatus ? ` · HTTP ${check.httpStatus}` : ''}${check.signals?.length ? `<br>signals: ${escape(check.signals.join(' + '))}` : ''}${check.finalUrl || check.url ? `<br>${escape(check.finalUrl || check.url)}` : ''}</p>`;
   if (check.status === 'live') {
     const tailorAction = check.title
-      ? `<button class="button ghost" data-tailor="${escape(check.verificationId)}">Create tailored resume</button>`
+      ? `<button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI application kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
       : '<span class="quiet">Tailoring is available for roles found through ranked search.</span>';
     result.insertAdjacentHTML('beforeend', `<div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Add to review queue</button>${tailorAction}</div>`);
     wireJobActions(result);
@@ -262,6 +327,36 @@ async function createTailoredDraft(verificationId, button) {
   }
 }
 
+async function createApplicationKit(verificationId, button) {
+  if (!aiState.configured) {
+    document.querySelector('#ai-setup').scrollIntoView({behavior: 'smooth'});
+    showAIMessage('Add an OpenRouter, OpenAI, or Anthropic key first. The local tailor remains available without one.', 'error');
+    return;
+  }
+  const approved = window.confirm(`Send your saved resume and this verified job description to ${providerName(aiState.provider)} (${aiState.model}) to build a reviewable application kit? ClearLead will not submit anything.`);
+  if (!approved) return;
+  button.disabled = true;
+  button.textContent = 'Building & auditing…';
+  tailorOutput.className = 'tailor-output active';
+  tailorOutput.innerHTML = '<p class="quiet">Selecting and prioritizing verbatim resume evidence for the resume, fit report, cover-letter evidence draft, and interview prep.</p>';
+  try {
+    const consent = await requestJson('/api/ai/consent', {method: 'POST', body: JSON.stringify({verificationId})});
+    const kit = await requestJson('/api/ai/kit', {method: 'POST', body: JSON.stringify({verificationId, consentId: consent.consentId})});
+    const labels = {'resume':'Tailored resume', 'fit-report':'Fit report', 'cover-letter':'Cover letter', 'interview-prep':'Interview prep', 'claim-audit':'Claim audit'};
+    const downloads = Object.entries(kit.downloads).map(([name, url]) => `<a class="button ${name === 'resume' ? 'primary' : 'ghost'}" href="${escape(url)}">${escape(labels[name] || name)}</a>`).join('');
+    tailorOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">audited application kit ready</p><h3>${escape(providerName(kit.provider))} · ${escape(kit.model)}</h3></div><div class="kit-downloads">${downloads}</div></div>
+      <div class="audit-strip"><strong>${kit.audit.accepted}</strong><span>source selections accepted</span><strong>${kit.audit.rejected}</strong><span>model-written claims rejected</span></div>
+      <p class="quiet">Priority language: ${escape(kit.matchedTerms.join(', ') || 'none returned')}<br>Gaps kept out of the resume: ${escape(kit.gaps.join(', ') || 'none returned')}</p>
+      <details><summary>Preview audited resume</summary><pre>${escape(kit.preview)}</pre></details>`;
+    tailorOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
+    button.textContent = 'AI kit ready';
+  } catch (error) {
+    tailorOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">No kit was saved and nothing was submitted. You can retry or use the local grounded tailor.</p>`;
+    button.disabled = false;
+    button.textContent = 'Retry AI kit';
+  }
+}
+
 function updateJobCard(check) {
   const card = [...document.querySelectorAll('.job-card')].find((item) => item.dataset.jobUrl === check.url);
   if (!card || !check.status) return;
@@ -273,7 +368,7 @@ function updateJobCard(check) {
     card.classList.add('verified');
     const actions = card.querySelector('.job-actions');
     if (actions && check.verificationId) {
-      actions.innerHTML = `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor resume</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
+      actions.innerHTML = `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
       wireJobActions(actions);
     }
   } else if (check.status === 'closed') {
@@ -334,6 +429,8 @@ async function loadState({autoSearch = true} = {}) {
     const hasPreviousSearch = Boolean(data.searchStatus.lastRunAt);
     if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch) searchJobs({silent: true});
     else scheduleRefresh(data.searchConfig, {startTimer: resumeReady && hasPreviousSearch});
+    try { showAI(await requestJson('/api/ai')); }
+    catch (error) { showAI({configured: false}); showAIMessage(`${error.message} The core search is still available. Use Remove key to reset the optional vault.`, 'error'); }
   } catch (error) {
     leads.innerHTML = `<div class="empty-state"><strong>${escape(error.message)}</strong><p><button class="button ghost" id="retry-queue">Retry loading ClearLead</button></p></div>`;
     document.querySelector('#retry-queue').addEventListener('click', () => loadState());
@@ -368,6 +465,7 @@ function relativeTime(value) { const time = Date.parse(value || ''); if (!Number
 function safeHttpUrl(value) { try { return /^https?:$/.test(new URL(value).protocol); } catch { return false; } }
 function list(selector) { return document.querySelector(selector).value.split(/[,\n]/).map((value) => value.trim()).filter(Boolean); }
 function termChip(value) { return `<span>${escape(value)}</span>`; }
+function providerName(value) { return ({openrouter:'OpenRouter', openai:'OpenAI', anthropic:'Anthropic'})[value] || 'AI provider'; }
 function escape(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
 
 loadState();

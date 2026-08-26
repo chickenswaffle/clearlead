@@ -25,6 +25,7 @@
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
         <a href="#resume">resume</a>
+        <a href="#ai-setup">ai setup</a>
         <a href="#search">search</a>
         <a href="#verify-panel">verify</a>
         <a href="#profile">profile</a>
@@ -77,9 +78,33 @@
       </div>
     </section>
 
+    <section id="ai-setup" class="section-block">
+      <div class="section-heading">
+        <div><p class="eyebrow">02 / bring your own model</p><h2>One tool, your provider</h2></div>
+        <p id="ai-status" class="readiness not-ready">Optional — local tailoring works without a key.</p>
+      </div>
+      <div class="ai-grid">
+        <div class="panel provider-card">
+          <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/provider</span></div>
+          <div class="provider-form">
+            <div class="field"><label for="ai-provider">Provider</label><select id="ai-provider"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option><option value="anthropic">Anthropic API</option></select></div>
+            <div class="field"><label for="ai-model">Model ID</label><input id="ai-model" autocomplete="off" placeholder="Provider model ID"></div>
+            <div class="field span-2"><label for="ai-key">API key</label><input id="ai-key" type="password" autocomplete="new-password" placeholder="Stored encrypted on this machine"><small id="ai-key-hint">The browser never receives a saved key.</small></div>
+            <div class="provider-actions span-2"><button id="save-provider" class="button primary">Save provider</button><button id="test-provider" class="button ghost">Test key</button><button id="remove-provider" class="button ghost danger">Remove key</button></div>
+            <div id="ai-result" class="provider-result span-2" aria-live="polite"></div>
+          </div>
+        </div>
+        <aside class="panel provider-explainer">
+          <p class="eyebrow">privacy boundary</p><h3>Local until you say go.</h3>
+          <ol><li>Your key is encrypted in ClearLead’s private local data folder.</li><li>Saving or testing a key never sends your resume.</li><li>Clicking <strong>Build AI kit</strong> asks before sending that resume and one verified job to your provider.</li><li>ClearLead audits source-line provenance and rejects unsupported numbers locally.</li></ol>
+          <p class="privacy-note">An OpenAI API key is separate from a ChatGPT subscription. Codex and Claude can also work with the exported markdown kit; ClearLead never submits an application.</p>
+        </aside>
+      </div>
+    </section>
+
     <section id="search" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">02 / multi-source discovery</p><h2>Search and rank the market</h2></div>
+        <div><p class="eyebrow">03 / multi-source discovery</p><h2>Search and rank the market</h2></div>
         <div class="refresh-state"><i></i><span id="next-refresh">auto-refresh ready</span></div>
       </div>
 
@@ -126,7 +151,7 @@
 
     <section id="verify-panel" class="section-block two-column">
       <div>
-        <p class="eyebrow">03 / evidence gate</p>
+        <p class="eyebrow">04 / evidence gate</p>
         <h2>Verify before you trust it</h2>
         <p class="section-copy">A company feed is a discovery signal. ClearLead follows the source, checks the final destination, and requires both an apply action and job-detail evidence before calling it live.</p>
       </div>
@@ -139,7 +164,7 @@
 
     <section id="profile" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">04 / targeting</p><h2>Fine-tune what fits</h2></div>
+        <div><p class="eyebrow">05 / targeting</p><h2>Fine-tune what fits</h2></div>
         <p id="readiness" class="readiness"></p>
       </div>
       <div class="panel profile-grid">
@@ -152,7 +177,7 @@
 
     <section id="queue" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">05 / review &amp; tailor</p><h2>Verified roles worth reviewing</h2></div>
+        <div><p class="eyebrow">06 / review &amp; build</p><h2>Verified roles worth reviewing</h2></div>
         <span class="verification-rule">server-verified only</span>
       </div>
       <div id="leads" class="queue-list"></div>
