@@ -8,14 +8,20 @@ import { verifyPosting } from "./verify.mjs";
 import { discoverGreenhouse } from "./greenhouse.mjs";
 import { profileReadiness, roleRelevance } from "./profile.mjs";
 import { searchPublishedRoles } from "./search.mjs";
+import { createSourceDiscovery } from "./sources.mjs";
+import { resumeSummary } from "./resume.mjs";
+import { tailorResume } from "./tailor.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
   dataDir = path.join(root, "data"),
   verifyFn = verifyPosting,
-  discoverFn = discoverGreenhouse,
+  discoverFn,
+  discoverSourceFn,
 } = {}) {
   const store = createStore(dataDir);
+  const greenhouseFn = discoverFn || discoverGreenhouse;
+  const sourceDiscovery = discoverSourceFn || (discoverFn ? null : createSourceDiscovery());
   const liveVerifications = new Map();
   const discoveredJobs = new Map();
 
@@ -29,12 +35,19 @@ export function createAppServer({
       if (req.method === "GET" && url.pathname === "/") return sendFile(res, path.join(root, "public", "index.html"), "text/html");
       if (req.method === "GET" && url.pathname === "/app.js") return sendFile(res, path.join(root, "public", "app.js"), "text/javascript");
       if (req.method === "GET" && url.pathname === "/styles.css") return sendFile(res, path.join(root, "public", "styles.css"), "text/css");
+      if (req.method === "GET" && url.pathname.startsWith("/api/tailored/")) {
+        const item = store.tailoredFile(url.pathname.split("/").pop());
+        if (!item) return json(res, 404, { error: "Tailored draft not found." });
+        return sendDownload(res, item.file, item.filename, "text/markdown");
+      }
       if (req.method === "GET" && url.pathname === "/api/leads") {
         const profile = store.profile();
+        const resume = resumeSummary(store.resume());
         return json(res, 200, {
           leads: store.leads(),
           profile,
-          readiness: profileReadiness(profile),
+          resume,
+          readiness: combinedReadiness(profile, resume),
           searchConfig: store.searchConfig(),
           searchStatus: store.searchStatus(),
         });
@@ -47,20 +60,15 @@ export function createAppServer({
         const discovered = discoveredJobs.get(jobUrl) || {};
         const verifiedLead = {
           ...verification,
-          title: shortText(discovered.title || request.title, 180),
-          company: shortText(discovered.company || request.company, 100),
-          location: shortText(discovered.location || request.location, 160),
+          title: shortText(discovered.title, 180),
+          company: shortText(discovered.company, 100),
+          location: shortText(discovered.location, 160),
           source: shortText(discovered.source, 40),
           board: shortText(discovered.board, 80),
           postedAt: isoDate(discovered.postedAt),
           firstSeenAt: isoDate(discovered.firstSeenAt),
         };
-        const verificationId = randomUUID();
-        pruneVerifications(liveVerifications);
-        liveVerifications.set(verificationId, {
-          lead: verifiedLead,
-          expiresAt: Date.now() + 15 * 60 * 1000,
-        });
+        const verificationId = rememberVerification(liveVerifications, verifiedLead, discovered);
         return json(res, 200, { ...verifiedLead, verificationId });
       }
       if (req.method === "POST" && url.pathname === "/api/leads") {
@@ -70,9 +78,37 @@ export function createAppServer({
           liveVerifications.delete(verificationId);
           throw new Error("Run the live verifier again before saving this lead.");
         }
+        if (verified.used.save) throw new Error("This verification was already used to save the lead. Verify again for another save action.");
         const saved = store.saveLiveLead(verified.lead);
-        liveVerifications.delete(verificationId);
+        verified.used.save = true;
         return json(res, 200, saved);
+      }
+      if (req.method === "POST" && url.pathname === "/api/resume") {
+        const request = await body(req);
+        const resume = store.saveResume({ text: request.text, filename: request.filename });
+        return json(res, 200, { ok: true, resume: resumeSummary(resume), readiness: combinedReadiness(store.profile(), resumeSummary(resume)) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/tailor") {
+        const { verificationId } = await body(req);
+        const verified = liveVerifications.get(verificationId);
+        if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live") {
+          throw new Error("Verify this role again before creating a tailored resume draft.");
+        }
+        if (verified.used.tailor) throw new Error("This verification already created a tailored draft. Verify again to create another draft.");
+        if (!verified.job?.title) throw new Error("Tailoring requires a role discovered through the ranked search pool so its source metadata is trusted.");
+        const resume = store.resume();
+        const draft = tailorResume(resume.text, { ...verified.job, ...verified.lead, status: "live" });
+        const saved = store.saveTailoredDraft(verified.lead, draft);
+        verified.used.tailor = true;
+        return json(res, 200, {
+          id: saved.id,
+          filename: saved.filename,
+          downloadUrl: saved.downloadUrl,
+          createdAt: saved.createdAt,
+          matchedTerms: saved.matchedTerms,
+          absentTerms: saved.absentTerms,
+          preview: saved.markdown.slice(0, 12_000),
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/profile") {
         const profile = await body(req);
@@ -82,11 +118,11 @@ export function createAppServer({
           mustHaves: strings(profile.mustHaves),
         });
         const saved = store.profile();
-        return json(res, 200, { ok: true, profile: saved, readiness: profileReadiness(saved) });
+        return json(res, 200, { ok: true, profile: saved, readiness: combinedReadiness(saved, resumeSummary(store.resume())) });
       }
       if (req.method === "POST" && url.pathname === "/api/discover/greenhouse") {
         const { board } = await body(req);
-        const discovery = await discoverFn(board);
+        const discovery = await greenhouseFn(board);
         const profile = store.profile();
         return json(res, 200, {
           ...discovery,
@@ -96,10 +132,14 @@ export function createAppServer({
       }
       if (req.method === "POST" && url.pathname === "/api/search") {
         const requested = await body(req);
+        const resume = store.resume();
+        if (!resumeSummary(resume).ready) return json(res, 409, { error: "Add your resume first so ClearLead can rank this search." });
         const config = store.saveSearchConfig(requested);
         const search = await searchPublishedRoles(config, {
-          discoverFn,
+          discoverSourceFn: sourceDiscovery,
+          discoverFn: sourceDiscovery ? undefined : greenhouseFn,
           profile: store.profile(),
+          resume,
         });
         if (search.outage) {
           const { allJobs: _allJobs, ...publicSearch } = search;
@@ -107,15 +147,20 @@ export function createAppServer({
         }
         const annotated = store.recordSearch(search.allJobs, search.searchedAt);
         const byUrl = new Map(annotated.map((job) => [job.url, job]));
-        const jobs = search.jobs.map((job) => byUrl.get(job.url));
+        let jobs = search.jobs.map((job) => byUrl.get(job.url));
         rememberDiscovered(discoveredJobs, annotated);
+        if (config.autoVerify && config.verifyLimit > 0) {
+          jobs = await autoVerify(jobs, config.verifyLimit, verifyFn, liveVerifications, discoveredJobs);
+        }
         const { allJobs: _allJobs, ...publicSearch } = search;
         return json(res, 200, {
           ...publicSearch,
           config,
-          jobs,
+          jobs: jobs.map(publicJob),
           total: jobs.length,
           newCount: jobs.filter((job) => job.isNew).length,
+          verifiedCount: jobs.filter((job) => job.verification?.status === "live").length,
+          checkedCount: jobs.filter((job) => job.verification).length,
         });
       }
       json(res, 404, { error: "Not found" });
@@ -162,6 +207,56 @@ function pruneVerifications(verifications) {
     if (verification.expiresAt <= now) verifications.delete(id);
   }
 }
+function rememberVerification(verifications, lead, job = {}) {
+  const verificationId = randomUUID();
+  pruneVerifications(verifications);
+  verifications.set(verificationId, { lead, job, used: { save: false, tailor: false }, expiresAt: Date.now() + 30 * 60 * 1000 });
+  return verificationId;
+}
+export async function autoVerify(jobs, limit, verifyFn, verifications, discoveredJobs) {
+  const selected = jobs.slice(0, Math.min(limit, jobs.length));
+  const outcomes = new Map();
+  let cursor = 0;
+  async function worker() {
+    while (cursor < selected.length) {
+      const job = selected[cursor++];
+      let verification;
+      try {
+        verification = await verifyFn(job.url);
+      } catch {
+        verification = { status: "inconclusive", url: job.url, checkedAt: new Date().toISOString(), reason: "Verifier failed unexpectedly. Retry, open the source, or discard it.", signals: [] };
+      }
+      const publicVerification = { ...verification };
+      if (verification.status === "live") {
+        const lead = {
+          ...verification,
+          title: shortText(job.title, 180), company: shortText(job.company, 100), location: shortText(job.location, 160),
+          source: shortText(job.source, 40), board: shortText(job.board, 80), postedAt: isoDate(job.postedAt), firstSeenAt: isoDate(job.firstSeenAt),
+        };
+        publicVerification.verificationId = rememberVerification(verifications, lead, discoveredJobs.get(job.url) || job);
+      }
+      outcomes.set(job.url, publicVerification);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, selected.length) }, () => worker()));
+  return jobs.map((job) => outcomes.has(job.url) ? { ...job, verification: outcomes.get(job.url), verificationStatus: outcomes.get(job.url).status } : job);
+}
+function publicJob(job) {
+  const { description: _description, applyUrl: _applyUrl, ...visible } = job;
+  return visible;
+}
+function combinedReadiness(profile, resume) {
+  const targeting = profileReadiness(profile);
+  const missing = [...(!resume.ready ? ["resume"] : []), ...targeting.missing];
+  return {
+    ready: resume.ready,
+    missing,
+    message: resume.ready
+      ? targeting.ready ? "Ready — ranking uses your resume and target roles." : "Resume ready — add target roles for sharper title matching, or search now from resume evidence."
+      : "Resume required — paste it below before searching the job pool.",
+  };
+}
 function json(res, status, value) { res.writeHead(status, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(value)); }
 function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
-function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 100_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }
+function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"` }); res.end(fs.readFileSync(file)); }
+function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 500_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }

@@ -58,7 +58,20 @@ test("profile, discovery, verification, and review queue work through the real A
     locations: ["Remote"],
     mustHaves: ["Salary listed"],
   });
-  assert.equal(profile.readiness.ready, true);
+  assert.equal(profile.readiness.ready, false);
+
+  const resumeText = `# Jordan Example
+
+## Summary
+Staff platform engineer with ten years building distributed systems and reliable cloud infrastructure.
+
+## Experience
+- Built Python and Kubernetes services for production systems.
+- Led platform engineering projects across product teams.
+- Improved observability and deployment reliability.`;
+  const resume = await postJson(`${base}/api/resume`, { text: resumeText, filename: "resume.md" });
+  assert.equal(resume.resume.ready, true);
+  assert.equal(resume.readiness.ready, true);
 
   const firstSearch = await postJson(`${base}/api/search`, {
     boards: ["example"],
@@ -70,7 +83,9 @@ test("profile, discovery, verification, and review queue work through the real A
   assert.equal(firstSearch.total, 1);
   assert.equal(firstSearch.newCount, 0);
   assert.equal(firstSearch.jobs[0].isNew, false);
-  assert.equal(firstSearch.jobs[0].verificationStatus, "unverified");
+  assert.equal(firstSearch.jobs[0].verificationStatus, "live");
+  assert.equal(firstSearch.checkedCount, 1);
+  assert.equal(firstSearch.verifiedCount, 1);
 
   const secondSearch = await postJson(`${base}/api/search`, firstSearch.config);
   assert.equal(secondSearch.newCount, 0);
@@ -90,6 +105,19 @@ test("profile, discovery, verification, and review queue work through the real A
   const saved = await postJson(`${base}/api/leads`, { verificationId: check.verificationId });
   assert.equal(saved.saved, true);
 
+  const draft = await postJson(`${base}/api/tailor`, { verificationId: check.verificationId });
+  assert.match(draft.filename, /example-staff-platform-engineer/);
+  assert.match(draft.preview, /no claims or metrics were invented/i);
+  const download = await fetch(`${base}${draft.downloadUrl}`);
+  assert.equal(download.status, 200);
+  assert.match(await download.text(), /Built Python and Kubernetes services/);
+  const repeatedSave = await fetch(`${base}/api/leads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verificationId: check.verificationId }) });
+  assert.equal(repeatedSave.status, 400);
+  assert.match((await repeatedSave.json()).error, /already used/);
+  const repeatedTailor = await fetch(`${base}/api/tailor`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verificationId: check.verificationId }) });
+  assert.equal(repeatedTailor.status, 400);
+  assert.match((await repeatedTailor.json()).error, /already created/);
+
   const queue = await getJson(`${base}/api/leads`);
   assert.equal(queue.leads.length, 1);
   assert.equal(queue.leads[0].source, "greenhouse");
@@ -97,12 +125,18 @@ test("profile, discovery, verification, and review queue work through the real A
 
   const manualCheck = await postJson(`${base}/api/verify`, {
     url: "https://jobs.example/manual",
+    title: "Forged Chief Executive Officer",
+    company: "Forged Company",
+    location: "Forged Location",
     source: "forged-source",
     board: "forged-board",
     firstSeenAt: "2026-01-01T00:00:00Z",
   });
   assert.equal(manualCheck.source, "");
   assert.equal(manualCheck.board, "");
+  assert.equal(manualCheck.title, "");
+  assert.equal(manualCheck.company, "");
+  assert.equal(manualCheck.location, "");
   assert.equal(manualCheck.firstSeenAt, "");
 
   const rejected = await fetch(`${base}/api/leads`, {
@@ -130,7 +164,8 @@ test("a total source outage does not establish a false new-role baseline", async
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const failed = await postJson(`${base}/api/search`, { boards: ["example"], query: "platform engineer" });
+  await postJson(`${base}/api/resume`, { text: "Platform engineer with extensive experience building cloud systems.\n- Built reliable distributed services with Python and Kubernetes.\n- Led production operations and observability improvements across engineering teams.", filename: "resume.md" });
+  const failed = await postJson(`${base}/api/search`, { boards: ["example"], query: "platform engineer", autoVerify: false });
   assert.equal(failed.outage, true);
   assert.equal((await getJson(`${base}/api/leads`)).searchStatus.lastRunAt, null);
   outage = false;

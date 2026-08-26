@@ -10,7 +10,8 @@ test("search config validates, deduplicates, and caps company boards", () => {
   });
   assert.equal(config.boards[0], "figma");
   assert.equal(config.boards.includes("bad board"), false);
-  assert.equal(config.boards.length, 12);
+  assert.equal(config.boards.length, 20);
+  assert.deepEqual(config.greenhouseBoards, config.boards);
   assert.equal(config.query, "platform engineer");
   assert.equal(config.refreshMinutes, 2);
 });
@@ -34,7 +35,8 @@ test("multi-board search filters, deduplicates, scores, and reports source failu
 
   assert.equal(result.jobs.length, 1);
   assert.equal(result.jobs[0].title, "Staff Platform Engineer");
-  assert.equal(result.jobs[0].relevance.score, 100);
+  assert.equal(result.jobs[0].relevance.score, 60);
+  assert.equal(result.jobs[0].match.breakdown.title, 100);
   assert.equal(result.jobs[0].verificationStatus, "unverified");
   assert.equal(result.sources.find((source) => source.board === "broken").ok, false);
 });

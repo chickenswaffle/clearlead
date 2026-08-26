@@ -2,12 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeProfile } from "./profile.mjs";
 import { normalizeSearchConfig } from "./search.mjs";
+import { normalizeResume } from "./resume.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
   const profilePath = path.join(dataDir, "profile.json");
   const searchConfigPath = path.join(dataDir, "search-config.json");
   const searchStatePath = path.join(dataDir, "search-state.json");
+  const resumePath = path.join(dataDir, "resume.json");
+  const tailoredPath = path.join(dataDir, "tailored");
 
   function read(file, fallback) {
     try {
@@ -18,13 +21,33 @@ export function createStore(dataDir) {
     }
   }
   function write(file, value) {
-    fs.mkdirSync(dataDir, { recursive: true });
-    const temporary = `${file}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n");
-    fs.renameSync(temporary, file);
+    fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const lock = `${file}.lock`;
+    withFileLock(lock, () => {
+      const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+      try {
+        const descriptor = fs.openSync(temporary, "wx", 0o600);
+        try {
+          fs.writeFileSync(descriptor, JSON.stringify(value, null, 2) + "\n");
+          fs.fsyncSync(descriptor);
+        } finally {
+          fs.closeSync(descriptor);
+        }
+        fs.renameSync(temporary, file);
+      } finally {
+        if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+      }
+    });
   }
 
   return {
+    resume: () => normalizeResume(read(resumePath, {})),
+    saveResume(resume) {
+      const normalized = normalizeResume(resume);
+      if (!normalized.ready) throw new Error("Resume text is too short. Paste the complete resume before continuing.");
+      write(resumePath, normalized);
+      return normalized;
+    },
     profile: () => normalizeProfile(read(profilePath, {})),
     saveProfile: (profile) => write(profilePath, normalizeProfile(profile)),
     searchConfig: () => normalizeSearchConfig(read(searchConfigPath, {})),
@@ -55,6 +78,22 @@ export function createStore(dataDir) {
       return annotated;
     },
     leads: () => read(leadsPath, []),
+    saveTailoredDraft(job, draft) {
+      const id = crypto.randomUUID();
+      fs.mkdirSync(tailoredPath, { recursive: true });
+      const filename = `${slug(job.company)}-${slug(job.title)}-${id}.md`;
+      const file = path.join(tailoredPath, filename);
+      fs.writeFileSync(file, draft.markdown, { encoding: "utf8", mode: 0o600 });
+      return { id, filename, file, downloadUrl: `/api/tailored/${id}`, createdAt: new Date().toISOString(), ...draft };
+    },
+    tailoredFile(id) {
+      if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
+      if (!fs.existsSync(tailoredPath)) return null;
+      const suffix = `-${String(id)}.md`;
+      const filename = fs.readdirSync(tailoredPath).find((name) => name.endsWith(suffix));
+      if (!filename) return null;
+      return { filename, file: path.join(tailoredPath, filename) };
+    },
     saveLiveLead(lead) {
       if (lead.status !== "live") throw new Error("Only live leads can be saved.");
       if (!isHttpUrl(lead.finalUrl || lead.url)) throw new Error("A verified http(s) source URL is required.");
@@ -67,6 +106,45 @@ export function createStore(dataDir) {
       return { saved: true, lead: saved };
     },
   };
+}
+
+function slug(value) {
+  return String(value || "role").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "role";
+}
+
+function withFileLock(lock, action) {
+  const deadline = Date.now() + 2_000;
+  let descriptor;
+  while (descriptor === undefined) {
+    try {
+      descriptor = fs.openSync(lock, "wx", 0o600);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw new Error(`ClearLead could not acquire the ${path.basename(lock)} write lock.`);
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) {
+          fs.unlinkSync(lock);
+          continue;
+        }
+      } catch (statError) {
+        if (statError?.code === "ENOENT") continue;
+        throw statError;
+      }
+      if (Date.now() >= deadline) throw new Error(`ClearLead could not acquire the ${path.basename(lock)} write lock.`);
+      sleepSync(10);
+    }
+  }
+  try {
+    fs.writeFileSync(descriptor, `${process.pid}\n`);
+    return action();
+  } finally {
+    fs.closeSync(descriptor);
+    try { fs.unlinkSync(lock); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  }
+}
+
+function sleepSync(milliseconds) {
+  const buffer = new SharedArrayBuffer(4);
+  Atomics.wait(new Int32Array(buffer), 0, 0, milliseconds);
 }
 
 function normalizeSeenEntry(value) {

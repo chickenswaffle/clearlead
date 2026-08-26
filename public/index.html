@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#06080a">
-  <meta name="description" content="ClearLead finds newly published job postings and verifies them before they enter your review queue.">
+  <meta name="description" content="ClearLead indexes large public job sources, ranks roles from your resume, verifies top matches, and creates grounded tailored drafts.">
   <title>ClearLead — find the signal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +24,7 @@
     <div class="shell brandrow">
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
+        <a href="#resume">resume</a>
         <a href="#search">search</a>
         <a href="#verify-panel">verify</a>
         <a href="#profile">profile</a>
@@ -35,25 +36,50 @@
 
   <main id="top" class="shell">
     <section class="hero">
-      <p class="terminal-line"><span>visitor@clearlead:~$</span> find --published --new --verify</p>
-      <h1>Find the signal.<br><em>Verify the role.</em></h1>
-      <p class="hero-copy">Search company publishing feeds as postings appear, see exactly what is new, and verify the source before anything reaches your review queue.</p>
+      <p class="terminal-line"><span>visitor@clearlead:~$</span> index --resume --rank --verify</p>
+      <h1>Your resume in.<br><em>Best roles out.</em></h1>
+      <p class="hero-copy">Search across company ATS feeds and broad public job boards, rank the pool against evidence in your resume, automatically verify the best matches, then create tailored drafts without invented claims.</p>
       <div class="hero-actions">
-        <a class="button primary" href="#search">Search current postings</a>
-        <a class="button ghost" href="#profile">Tune your targets</a>
+        <a class="button primary" href="#resume">Add your resume</a>
+        <a class="button ghost" href="#search">Explore the job pool</a>
       </div>
 
       <div class="stats" aria-label="ClearLead status">
-        <div><strong id="stat-open">0</strong><span>matching postings</span></div>
+        <div><strong id="stat-open">0</strong><span>ranked postings</span></div>
         <div><strong id="stat-new">0</strong><span>new this scan</span></div>
-        <div><strong id="stat-sources">0/0</strong><span>sources online</span></div>
+        <div><strong id="stat-verified">0</strong><span>verified live</span></div>
         <div><strong id="stat-queue">0</strong><span>verified queue</span></div>
+      </div>
+    </section>
+
+    <section id="resume" class="section-block resume-onboarding">
+      <div class="section-heading">
+        <div><p class="eyebrow">01 / local resume index</p><h2>Start with the truth</h2></div>
+        <p id="resume-status" class="readiness not-ready">Resume required before search.</p>
+      </div>
+      <div class="resume-grid">
+        <div class="panel resume-card">
+          <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/resume</span></div>
+          <div class="resume-editor">
+            <label for="resume-text">Paste your resume</label>
+            <textarea id="resume-text" placeholder="Paste the complete text of your resume here. Markdown and plain text are supported."></textarea>
+            <div class="resume-actions">
+              <label class="button ghost file-button">Load .txt or .md<input id="resume-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
+              <button id="save-resume" class="button primary">Index resume locally</button>
+            </div>
+          </div>
+        </div>
+        <aside class="panel resume-insights">
+          <p class="eyebrow">extracted evidence</p>
+          <div id="resume-insights"><p class="quiet">Skills, keywords, and likely role titles will appear here after indexing.</p></div>
+          <p class="privacy-note">Your resume stays in ClearLead’s local data directory. Job descriptions never become resume claims.</p>
+        </aside>
       </div>
     </section>
 
     <section id="search" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">01 / feed discovery</p><h2>Search postings as they appear</h2></div>
+        <div><p class="eyebrow">02 / multi-source discovery</p><h2>Search and rank the market</h2></div>
         <div class="refresh-state"><i></i><span id="next-refresh">auto-refresh ready</span></div>
       </div>
 
@@ -63,7 +89,7 @@
           <div class="field span-2">
             <label for="role-query">Role search</label>
             <input id="role-query" autocomplete="off" placeholder="platform engineer, applied AI, product designer">
-            <small>Leave blank to use your saved target roles.</small>
+            <small>Leave blank to rank the broad pool from your resume and saved targets.</small>
           </div>
           <div class="field">
             <label for="search-location">Location contains</label>
@@ -78,12 +104,15 @@
               <option value="30">Every 30 minutes</option>
             </select>
           </div>
-          <div class="field span-2">
-            <label for="source-boards">Companies to watch <span>Greenhouse board tokens</span></label>
-            <input id="source-boards" autocomplete="off" placeholder="figma, datadog, cloudflare, discord">
+          <div class="source-config span-2">
+            <div class="field"><label for="greenhouse-boards">Greenhouse boards</label><input id="greenhouse-boards" autocomplete="off" placeholder="figma, datadog, cloudflare"></div>
+            <div class="field"><label for="lever-sites">Lever sites</label><input id="lever-sites" autocomplete="off" placeholder="palantir"></div>
+            <div class="field"><label for="ashby-boards">Ashby boards</label><input id="ashby-boards" autocomplete="off" placeholder="ramp, linear"></div>
+            <div class="field"><label for="broad-feeds">Broad feeds</label><input id="broad-feeds" autocomplete="off" placeholder="remotive, arbeitnow"></div>
           </div>
           <label class="toggle"><input id="auto-refresh" type="checkbox" checked><span></span>Keep checking while ClearLead is open</label>
-          <button id="search-jobs" class="button primary search-button">Search published roles</button>
+          <div class="verification-config"><label class="toggle"><input id="auto-verify" type="checkbox" checked><span></span>Automatically verify top matches</label><select id="verify-limit"><option value="5">top 5</option><option value="8" selected>top 8</option><option value="12">top 12</option><option value="20">top 20</option></select></div>
+          <button id="search-jobs" class="button primary search-button span-2">Search, rank &amp; verify</button>
         </div>
         <div id="source-health" class="source-health" aria-live="polite"></div>
       </div>
@@ -97,7 +126,7 @@
 
     <section id="verify-panel" class="section-block two-column">
       <div>
-        <p class="eyebrow">02 / evidence gate</p>
+        <p class="eyebrow">03 / evidence gate</p>
         <h2>Verify before you trust it</h2>
         <p class="section-copy">A company feed is a discovery signal. ClearLead follows the source, checks the final destination, and requires both an apply action and job-detail evidence before calling it live.</p>
       </div>
@@ -110,7 +139,7 @@
 
     <section id="profile" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">03 / targeting</p><h2>Teach it what fits</h2></div>
+        <div><p class="eyebrow">04 / targeting</p><h2>Fine-tune what fits</h2></div>
         <p id="readiness" class="readiness"></p>
       </div>
       <div class="panel profile-grid">
@@ -123,10 +152,11 @@
 
     <section id="queue" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">04 / review queue</p><h2>Verified roles worth reviewing</h2></div>
+        <div><p class="eyebrow">05 / review &amp; tailor</p><h2>Verified roles worth reviewing</h2></div>
         <span class="verification-rule">server-verified only</span>
       </div>
       <div id="leads" class="queue-list"></div>
+      <div id="tailor-output" class="tailor-output" aria-live="polite"></div>
     </section>
   </main>
 
