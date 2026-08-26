@@ -1,8 +1,8 @@
 # ClearLead
 
-ClearLead is a local-first job-search tool built around one reliable action: verify a role before saving it.
+ClearLead is a local-first job-search tool that watches company publishing feeds, shows newly published matching roles, and verifies a posting before saving it.
 
-It is intentionally not a dashboard. Paste a job URL or discover published Greenhouse roles, inspect the evidence, then explicitly save only live roles.
+It is intentionally evidence-first: discovery can call a role published, but only the verifier can call it live.
 
 ## Run
 
@@ -16,11 +16,15 @@ Open `http://localhost:4173`.
 ## Current workflow
 
 1. Save target roles and optional location/must-have preferences locally.
-2. Paste any job URL, or enter a company Greenhouse board token to discover published roles.
-3. Verify the source. Discovery never labels a role live by itself.
-4. Save only a verified live role to the local review queue.
+2. Search up to 12 Greenhouse company boards at once. Eight validated boards are included as starters.
+3. ClearLead deduplicates matches, records when each URL first appeared, and marks new roles on later scans.
+4. Optional auto-refresh repeats the saved search every 2, 5, 15, or 30 minutes while the app is open.
+5. Verify a source. Discovery never labels a role live by itself.
+6. Save only a server-verified live role to the local review queue.
 
 Greenhouse is the first source adapter. Lever and Ashby are next; each source will use the same published → verified → review contract.
+
+The interface takes visual cues from [virobit.dev](https://virobit.dev): terminal typography, near-black panels, compact status signals, and restrained green/blue accents.
 
 ## Status model
 

@@ -1,12 +1,12 @@
 const BOARD_RE = /^[a-z0-9_-]{2,80}$/i;
 
-export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 25, timeoutMs = 10_000 } = {}) {
+export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 200, timeoutMs = 10_000 } = {}) {
   const token = String(board || "").trim();
   if (!BOARD_RE.test(token)) {
     return { source: "greenhouse", board: token, jobs: [], error: "Enter a valid Greenhouse board token." };
   }
 
-  const endpoint = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs?content=true`;
+  const endpoint = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -22,7 +22,7 @@ export async function discoverGreenhouse(board, { fetchFn = fetch, limit = 25, t
 
     const payload = await response.json();
     const jobs = (Array.isArray(payload.jobs) ? payload.jobs : [])
-      .slice(0, Math.min(Math.max(Number(limit) || 25, 1), 50))
+      .slice(0, Math.min(Math.max(Number(limit) || 200, 1), 500))
       .map((job) => ({
         source: "greenhouse",
         board: token,

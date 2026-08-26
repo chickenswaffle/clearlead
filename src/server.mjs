@@ -7,6 +7,7 @@ import { createStore } from "./store.mjs";
 import { verifyPosting } from "./verify.mjs";
 import { discoverGreenhouse } from "./greenhouse.mjs";
 import { profileReadiness, roleRelevance } from "./profile.mjs";
+import { searchPublishedRoles } from "./search.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -16,28 +17,51 @@ export function createAppServer({
 } = {}) {
   const store = createStore(dataDir);
   const liveVerifications = new Map();
+  const discoveredJobs = new Map();
 
   return http.createServer(async (req, res) => {
     if (!isTrustedLocalRequest(req)) return json(res, 403, { error: "ClearLead only accepts requests from this local app." });
+    if (req.method === "POST" && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
+      return json(res, 415, { error: "ClearLead mutation requests require application/json." });
+    }
     const url = new URL(req.url, "http://127.0.0.1");
     try {
       if (req.method === "GET" && url.pathname === "/") return sendFile(res, path.join(root, "public", "index.html"), "text/html");
       if (req.method === "GET" && url.pathname === "/app.js") return sendFile(res, path.join(root, "public", "app.js"), "text/javascript");
+      if (req.method === "GET" && url.pathname === "/styles.css") return sendFile(res, path.join(root, "public", "styles.css"), "text/css");
       if (req.method === "GET" && url.pathname === "/api/leads") {
         const profile = store.profile();
-        return json(res, 200, { leads: store.leads(), profile, readiness: profileReadiness(profile) });
+        return json(res, 200, {
+          leads: store.leads(),
+          profile,
+          readiness: profileReadiness(profile),
+          searchConfig: store.searchConfig(),
+          searchStatus: store.searchStatus(),
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/verify") {
-        const { url: jobUrl } = await body(req);
+        const request = await body(req);
+        const jobUrl = request.url;
         const verification = await verifyFn(jobUrl || "");
         if (verification.status !== "live") return json(res, 200, verification);
+        const discovered = discoveredJobs.get(jobUrl) || {};
+        const verifiedLead = {
+          ...verification,
+          title: shortText(discovered.title || request.title, 180),
+          company: shortText(discovered.company || request.company, 100),
+          location: shortText(discovered.location || request.location, 160),
+          source: shortText(discovered.source, 40),
+          board: shortText(discovered.board, 80),
+          postedAt: isoDate(discovered.postedAt),
+          firstSeenAt: isoDate(discovered.firstSeenAt),
+        };
         const verificationId = randomUUID();
         pruneVerifications(liveVerifications);
         liveVerifications.set(verificationId, {
-          lead: verification,
+          lead: verifiedLead,
           expiresAt: Date.now() + 15 * 60 * 1000,
         });
-        return json(res, 200, { ...verification, verificationId });
+        return json(res, 200, { ...verifiedLead, verificationId });
       }
       if (req.method === "POST" && url.pathname === "/api/leads") {
         const { verificationId } = await body(req);
@@ -70,6 +94,30 @@ export function createAppServer({
           readiness: profileReadiness(profile),
         });
       }
+      if (req.method === "POST" && url.pathname === "/api/search") {
+        const requested = await body(req);
+        const config = store.saveSearchConfig(requested);
+        const search = await searchPublishedRoles(config, {
+          discoverFn,
+          profile: store.profile(),
+        });
+        if (search.outage) {
+          const { allJobs: _allJobs, ...publicSearch } = search;
+          return json(res, 200, { ...publicSearch, config, jobs: [], total: 0, newCount: 0 });
+        }
+        const annotated = store.recordSearch(search.allJobs, search.searchedAt);
+        const byUrl = new Map(annotated.map((job) => [job.url, job]));
+        const jobs = search.jobs.map((job) => byUrl.get(job.url));
+        rememberDiscovered(discoveredJobs, annotated);
+        const { allJobs: _allJobs, ...publicSearch } = search;
+        return json(res, 200, {
+          ...publicSearch,
+          config,
+          jobs,
+          total: jobs.length,
+          newCount: jobs.filter((job) => job.isNew).length,
+        });
+      }
       json(res, 404, { error: "Not found" });
     } catch (error) {
       json(res, 400, { error: error instanceof Error ? error.message : "Request failed" });
@@ -87,6 +135,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 }
 
 function strings(value) { return Array.isArray(value) ? value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean) : []; }
+function shortText(value, limit) { return typeof value === "string" ? value.trim().slice(0, limit) : ""; }
+function isoDate(value) { const time = Date.parse(value || ""); return Number.isFinite(time) ? new Date(time).toISOString() : ""; }
 function isTrustedLocalRequest(req) {
   const host = String(req.headers.host || "").toLowerCase();
   if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return false;
@@ -94,10 +144,17 @@ function isTrustedLocalRequest(req) {
   if (!origin) return true;
   try {
     const parsed = new URL(origin);
-    return parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+    return parsed.protocol === "http:" && parsed.host.toLowerCase() === host;
   } catch {
     return false;
   }
+}
+function rememberDiscovered(cache, jobs) {
+  for (const job of jobs) {
+    cache.delete(job.url);
+    cache.set(job.url, job);
+  }
+  while (cache.size > 10_000) cache.delete(cache.keys().next().value);
 }
 function pruneVerifications(verifications) {
   const now = Date.now();
