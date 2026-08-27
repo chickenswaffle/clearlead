@@ -25,11 +25,8 @@
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
         <a href="#resume">resume</a>
-        <a href="#ai-setup">ai setup</a>
         <a href="#search">search</a>
-        <a href="#verify-panel">verify</a>
-        <a href="#profile">profile</a>
-        <a href="#queue">queue</a>
+        <a href="#profile">settings</a>
       </nav>
       <button class="command-button" id="search-top">run search <kbd>↵</kbd></button>
     </div>
@@ -39,10 +36,10 @@
     <section class="hero">
       <p class="terminal-line"><span>visitor@clearlead:~$</span> index --resume --rank --verify</p>
       <h1>Your resume in.<br><em>Best roles out.</em></h1>
-      <p class="hero-copy">Search across company ATS feeds and broad public job boards, rank the pool against evidence in your resume, automatically verify the best matches, then create tailored drafts without invented claims.</p>
+      <p class="hero-copy">Tell ClearLead what kind of job you want in normal words. It expands the search from your resume, finds and ranks real openings, then helps you tailor and apply.</p>
       <div class="hero-actions">
         <a class="button primary" href="#resume">Add your resume</a>
-        <a class="button ghost" href="#search">Explore the job pool</a>
+        <a class="button ghost" href="#search">Find jobs</a>
       </div>
 
       <div class="stats" aria-label="ClearLead status">
@@ -96,7 +93,7 @@
         </div>
         <aside class="panel provider-explainer">
           <p class="eyebrow">privacy boundary</p><h3>Local until you say go.</h3>
-          <ol><li>Your key is encrypted in ClearLead’s private local data folder.</li><li>Saving or testing a key never sends your resume.</li><li>Clicking <strong>Build AI kit</strong> asks before sending that resume and one verified job to your provider.</li><li>ClearLead audits source-line provenance and rejects unsupported numbers locally.</li></ol>
+          <ol><li>Your key is encrypted in ClearLead’s private local data folder.</li><li>Job search sends only a compact skills/role index—not your full resume—to expand search terms.</li><li>Clicking <strong>Make custom resume</strong> asks before sending your resume and one verified job to your provider.</li><li>ClearLead audits source-line provenance and rejects unsupported numbers locally.</li></ol>
           <p class="privacy-note">An OpenAI API key is separate from a ChatGPT subscription. Codex and Claude can also work with the exported markdown kit; ClearLead never submits an application.</p>
         </aside>
       </div>
@@ -104,46 +101,40 @@
 
     <section id="search" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">03 / multi-source discovery</p><h2>Search and rank the market</h2></div>
+        <div><p class="eyebrow">03 / tell us once</p><h2>What job do you want?</h2></div>
         <div class="refresh-state"><i></i><span id="next-refresh">auto-refresh ready</span></div>
       </div>
 
       <div class="search-console panel">
-        <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/search</span></div>
-        <div class="search-grid">
-          <div class="field span-2">
-            <label for="role-query">Role search</label>
-            <input id="role-query" autocomplete="off" placeholder="platform engineer, applied AI, product designer">
-            <small>Leave blank to rank the broad pool from your resume and saved targets.</small>
-          </div>
-          <div class="field">
-            <label for="search-location">Location contains</label>
-            <input id="search-location" autocomplete="off" placeholder="remote, Chicago, New York">
-          </div>
-          <div class="field">
-            <label for="refresh-minutes">Refresh while open</label>
-            <select id="refresh-minutes">
-              <option value="2">Every 2 minutes</option>
-              <option value="5" selected>Every 5 minutes</option>
-              <option value="15">Every 15 minutes</option>
-              <option value="30">Every 30 minutes</option>
-            </select>
-          </div>
-          <div class="source-config span-2">
-            <div class="field"><label for="greenhouse-boards">Greenhouse boards</label><input id="greenhouse-boards" autocomplete="off" placeholder="figma, datadog, cloudflare"></div>
-            <div class="field"><label for="lever-sites">Lever sites</label><input id="lever-sites" autocomplete="off" placeholder="palantir"></div>
-            <div class="field"><label for="ashby-boards">Ashby boards</label><input id="ashby-boards" autocomplete="off" placeholder="ramp, linear"></div>
-            <div class="field"><label for="broad-feeds">Broad feeds</label><input id="broad-feeds" autocomplete="off" placeholder="remotive, arbeitnow"></div>
-          </div>
-          <label class="toggle"><input id="auto-refresh" type="checkbox" checked><span></span>Keep checking while ClearLead is open</label>
-          <div class="verification-config"><label class="toggle"><input id="auto-verify" type="checkbox" checked><span></span>Automatically verify top matches</label><select id="verify-limit"><option value="5">top 5</option><option value="8" selected>top 8</option><option value="12">top 12</option><option value="20">top 20</option></select></div>
-          <button id="search-jobs" class="button primary search-button span-2">Search, rank &amp; verify</button>
+        <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/ask</span></div>
+        <div class="smart-search">
+          <label for="smart-search">Describe the job, location, and anything you care about</label>
+          <div class="smart-search-row"><input id="smart-search" autocomplete="off" placeholder="Entry level tech jobs in DFW, preferably near Cedar Hill"><button id="search-jobs" class="button primary">Find my best matches</button></div>
+          <p>ClearLead expands related titles, searches employer-direct and ATS sources, ranks against your resume, and checks the top results.</p>
+          <label class="toggle ai-search-toggle"><input id="use-ai-search" type="checkbox"><span></span>Use my configured AI to expand this search <small>(compact skills/title index only)</small></label>
+          <div id="search-plan" class="search-plan" aria-live="polite"></div>
+          <details class="advanced-search">
+            <summary>Fine-tune search and sources</summary>
+            <div class="search-grid">
+              <div class="field"><label for="role-query">Expanded role titles</label><input id="role-query" autocomplete="off"></div>
+              <div class="field"><label for="search-location">Preferred locations</label><input id="search-location" autocomplete="off"></div>
+              <div class="field"><label for="refresh-minutes">Refresh while open</label><select id="refresh-minutes"><option value="2">Every 2 minutes</option><option value="5" selected>Every 5 minutes</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option></select></div>
+              <div class="verification-config"><label class="toggle"><input id="auto-verify" type="checkbox" checked><span></span>Verify top matches</label><select id="verify-limit"><option value="5">top 5</option><option value="8" selected>top 8</option><option value="12">top 12</option><option value="20">top 20</option></select></div>
+              <div class="source-config span-2">
+                <div class="field"><label for="greenhouse-boards">Greenhouse boards</label><input id="greenhouse-boards" autocomplete="off"></div>
+                <div class="field"><label for="lever-sites">Lever sites</label><input id="lever-sites" autocomplete="off"></div>
+                <div class="field"><label for="ashby-boards">Ashby boards</label><input id="ashby-boards" autocomplete="off"></div>
+                <div class="field"><label for="broad-feeds">Broad feeds</label><input id="broad-feeds" autocomplete="off" placeholder="jobledger, remotive"></div>
+              </div>
+              <label class="toggle span-2"><input id="auto-refresh" type="checkbox" checked><span></span>Keep checking while ClearLead is open</label>
+            </div>
+          </details>
         </div>
         <div id="source-health" class="source-health" aria-live="polite"></div>
       </div>
 
       <div class="results-head">
-        <p id="search-summary">Run a search to read the latest company feeds.</p>
+        <p id="search-summary">Type one sentence and ClearLead will build the search.</p>
         <div class="legend"><span><i class="new-dot"></i>new after baseline</span><span><i class="feed-dot"></i>published · not verified</span></div>
       </div>
       <div id="search-results" class="job-grid" aria-live="polite"></div>

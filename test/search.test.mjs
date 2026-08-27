@@ -14,6 +14,8 @@ test("search config validates, deduplicates, and caps company boards", () => {
   assert.deepEqual(config.greenhouseBoards, config.boards);
   assert.equal(config.query, "platform engineer");
   assert.equal(config.refreshMinutes, 2);
+  const expanded = Array.from({ length: 14 }, (_, index) => `technical support role ${index}`).join(", ");
+  assert.equal(normalizeSearchConfig({ query: expanded }).query, expanded);
 });
 
 test("multi-board search filters, deduplicates, scores, and reports source failures", async () => {
@@ -61,4 +63,19 @@ test("search marks a complete source outage without inventing an empty result", 
   assert.equal(result.outage, true);
   assert.equal(result.jobs.length, 0);
   assert.equal(result.sources.every((source) => source.ok === false), true);
+});
+
+test("smart support search retains related titles before ranking and excludes unrelated roles", async () => {
+  const jobs = [
+    { title: "IT Technician", location: "Dallas", url: "https://jobs.example/it-tech", description: "Troubleshoot Windows users" },
+    { title: "End User Computing Technician", location: "Irving", url: "https://jobs.example/euc", description: "Desktop and device support" },
+    { title: "Technology Support Associate", location: "Arlington", url: "https://jobs.example/associate", description: "Help employees with technical issues" },
+    { title: "Staff Accountant", location: "Dallas", url: "https://jobs.example/accounting", description: "Prepare financial statements" },
+  ];
+  const plan = { titles: ["IT Support Specialist", "Help Desk Technician", "Desktop Support Technician"], locations: ["Dallas", "Irving", "Arlington"], sectors: [], seniority: "entry", remote: false };
+  const result = await searchPublishedRoles({ boards: ["example"], query: plan.titles.join(", "), location: plan.locations.join(", "), plan }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { skills: ["windows"], keywords: ["troubleshoot", "desktop", "support"], roleHints: [] },
+  });
+  assert.deepEqual(new Set(result.jobs.map((job) => job.title)), new Set(["IT Technician", "End User Computing Technician", "Technology Support Associate"]));
 });

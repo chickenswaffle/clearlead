@@ -6,8 +6,11 @@ export function createProviderClient({ fetchFn = fetch, timeoutMs = 90_000 } = {
     const timer = setTimeout(() => controller.abort(), requestTimeout);
     try {
       const response = await fetchFn(url, { ...init, signal: controller.signal });
-      if (!response.ok) throw new Error(`${PROVIDER_NAMES[provider]} returned HTTP ${response.status}. Check the key, model access, and provider balance.`);
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const code = /^[a-z0-9_-]{1,60}$/i.test(String(payload?.error?.code || "")) ? ` (${payload.error.code})` : "";
+        throw new Error(`${PROVIDER_NAMES[provider]} returned HTTP ${response.status}${code}. Check the key, model access, and provider balance.`);
+      }
       return payload;
     } catch (error) {
       if (error?.name === "AbortError") throw new Error(`${PROVIDER_NAMES[provider]} timed out. Nothing was saved; retry when the provider is available.`);
@@ -30,7 +33,7 @@ export function createProviderClient({ fetchFn = fetch, timeoutMs = 90_000 } = {
     return { ok: true, provider: secret.provider, model: secret.model, message: `${PROVIDER_NAMES[secret.provider]} accepted the saved key. No resume data was sent.` };
   }
 
-  async function generate(secret, { instructions, input, maxOutputTokens = 7_500 }) {
+  async function generate(secret, { instructions, input, maxOutputTokens = 7_500, reasoningEffort = "" }) {
     validateSecret(secret);
     const safeInput = String(input || "").slice(0, 180_000);
     const safeInstructions = String(instructions || "").slice(0, 30_000);
@@ -45,7 +48,7 @@ export function createProviderClient({ fetchFn = fetch, timeoutMs = 90_000 } = {
     if (secret.provider === "openai") {
       payload = await requestJson("https://api.openai.com/v1/responses", {
         method: "POST", headers: { ...bearer(secret.apiKey), "content-type": "application/json" },
-        body: JSON.stringify({ model: secret.model, instructions: safeInstructions, input: safeInput, max_output_tokens: maxOutputTokens, store: false }),
+        body: JSON.stringify({ model: secret.model, instructions: safeInstructions, input: safeInput, max_output_tokens: maxOutputTokens, store: false, ...(["minimal", "low", "medium", "high"].includes(reasoningEffort) ? { reasoning: { effort: reasoningEffort } } : {}) }),
       }, secret.provider);
       const text = payload?.output_text || (payload?.output || []).flatMap((item) => item?.content || []).filter((item) => item?.type === "output_text").map((item) => item.text).join("\n");
       return requiredText(text, secret.provider);

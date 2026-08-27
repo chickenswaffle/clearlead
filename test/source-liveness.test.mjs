@@ -7,6 +7,7 @@ const sources = {
   ashby: "https://jobs.ashbyhq.com/acme/one",
   remotive: "https://remotive.com/remote-jobs/one",
   arbeitnow: "https://www.arbeitnow.com/jobs/one",
+  jobledger: "https://jobs.example.com/employer-direct/one",
 };
 const cases = {
   live: { status: 200, body: "<h1>Platform Engineer</h1><h2>Responsibilities</h2><p>Build systems</p><button>Apply now</button>" },

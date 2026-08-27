@@ -40,3 +40,33 @@ test("field policy fails closed on third-party contacts and preserves meaningful
   assert.equal(context.__policy.classify(field(), "Spouse first name", profile).status, "blocked");
   assert.equal(context.__policy.hasValue({ tagName: "SELECT", selectedIndex: 0, value: "yes" }), true);
 });
+
+test("runtime safe-fill changes only fields and never activates a submission path", () => {
+  const calls = { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0, fieldEvents: [] };
+  const form = { submit() { calls.submit += 1; }, requestSubmit() { calls.requestSubmit += 1; }, addEventListener(type) { if (type === "submit") calls.submitEvent += 1; } };
+  const button = { click() { calls.click += 1; } };
+  const field = {
+    id: "candidate-email", name: "email", type: "email", tagName: "INPUT", autocomplete: "email", disabled: false,
+    value: "", dataset: {}, style: {}, form,
+    getBoundingClientRect() { return { width: 200, height: 32 }; },
+    getAttribute(name) { return name === "name" ? this.name : ""; },
+    closest() { return null; },
+    dispatchEvent(event) { calls.fieldEvents.push(event.type); return true; },
+  };
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+    location: { origin: "https://apply.example.com", pathname: "/form", search: "?job=7" },
+    document: { querySelectorAll(selector) { return selector.startsWith("label[") ? [] : [field]; } },
+    CSS: { escape: (value) => value },
+    Event: class { constructor(type) { this.type = type; } },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    fetch: async () => { calls.fetch += 1; },
+    button,
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__fill = fillSafeFields;`, context);
+  const report = context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" } });
+  assert.equal(report.filled, 1);
+  assert.equal(field.value, "taylor@example.com");
+  assert.deepEqual(calls.fieldEvents, ["input", "change", "blur"]);
+  assert.deepEqual({ submit: calls.submit, requestSubmit: calls.requestSubmit, click: calls.click, fetch: calls.fetch, submitEvent: calls.submitEvent }, { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0 });
+});

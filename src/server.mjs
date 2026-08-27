@@ -16,6 +16,7 @@ import { createProviderClient } from "./ai-providers.mjs";
 import { buildApplicationKit } from "./ai-resume.mjs";
 import { extractResumePdf } from "./pdf-resume.mjs";
 import { applicationProfileReadiness } from "./application-profile.mjs";
+import { createSearchPlan } from "./search-plan.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -34,6 +35,44 @@ export function createAppServer({
   const discoveredJobs = new Map();
   const aiConsents = new Map();
   let currentAutofillPack = null;
+
+  async function executeSearch(requested, plan = null) {
+    const resume = store.resume();
+    if (!resumeSummary(resume).ready) return { status: 409, payload: { error: "Add your resume first so ClearLead can rank this search." } };
+    const config = store.saveSearchConfig(requested);
+    const search = await searchPublishedRoles({ ...config, ...(plan ? { plan } : {}) }, {
+      discoverSourceFn: sourceDiscovery,
+      discoverFn: sourceDiscovery ? undefined : greenhouseFn,
+      profile: store.profile(),
+      resume,
+    });
+    if (search.outage) {
+      const { allJobs: _allJobs, ...publicSearch } = search;
+      return { status: 200, payload: { ...publicSearch, config, ...(plan ? { plan } : {}), jobs: [], total: 0, newCount: 0 } };
+    }
+    const annotated = store.recordSearch(search.allJobs, search.searchedAt);
+    const byUrl = new Map(annotated.map((job) => [job.url, job]));
+    let jobs = search.jobs.map((job) => byUrl.get(job.url)).filter(Boolean);
+    rememberDiscovered(discoveredJobs, annotated);
+    if (config.autoVerify && config.verifyLimit > 0) {
+      jobs = await autoVerify(jobs, config.verifyLimit, verifyFn, liveVerifications, discoveredJobs);
+      jobs.sort((left, right) => verificationPriority(left) - verificationPriority(right) || (right.match?.score || 0) - (left.match?.score || 0));
+    }
+    const { allJobs: _allJobs, ...publicSearch } = search;
+    return {
+      status: 200,
+      payload: {
+        ...publicSearch,
+        config,
+        ...(plan ? { plan } : {}),
+        jobs: jobs.map(publicJob),
+        total: jobs.length,
+        newCount: jobs.filter((job) => job.isNew).length,
+        verifiedCount: jobs.filter((job) => job.verification?.status === "live").length,
+        checkedCount: jobs.filter((job) => job.verification).length,
+      },
+    };
+  }
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
@@ -282,36 +321,37 @@ export function createAppServer({
       }
       if (req.method === "POST" && url.pathname === "/api/search") {
         const requested = await body(req);
+        const outcome = await executeSearch(requested);
+        return json(res, outcome.status, outcome.payload);
+      }
+      if (req.method === "POST" && url.pathname === "/api/search/smart") {
+        const request = await body(req);
         const resume = store.resume();
         if (!resumeSummary(resume).ready) return json(res, 409, { error: "Add your resume first so ClearLead can rank this search." });
-        const config = store.saveSearchConfig(requested);
-        const search = await searchPublishedRoles(config, {
-          discoverSourceFn: sourceDiscovery,
-          discoverFn: sourceDiscovery ? undefined : greenhouseFn,
+        const prompt = shortText(request.prompt, 500);
+        if (!prompt) return json(res, 400, { error: "Type the kind of job you want first." });
+        let secret = null;
+        if (request.useAI === true) {
+          try { secret = vault.load(); }
+          catch { secret = null; }
+        }
+        const plan = await createSearchPlan(prompt, {
+          resume: resumeSummary(resume),
           profile: store.profile(),
-          resume,
+          generateText: secret ? (payload) => aiClient.generate(secret, payload) : undefined,
         });
-        if (search.outage) {
-          const { allJobs: _allJobs, ...publicSearch } = search;
-          return json(res, 200, { ...publicSearch, config, jobs: [], total: 0, newCount: 0 });
-        }
-        const annotated = store.recordSearch(search.allJobs, search.searchedAt);
-        const byUrl = new Map(annotated.map((job) => [job.url, job]));
-        let jobs = search.jobs.map((job) => byUrl.get(job.url));
-        rememberDiscovered(discoveredJobs, annotated);
-        if (config.autoVerify && config.verifyLimit > 0) {
-          jobs = await autoVerify(jobs, config.verifyLimit, verifyFn, liveVerifications, discoveredJobs);
-        }
-        const { allJobs: _allJobs, ...publicSearch } = search;
-        return json(res, 200, {
-          ...publicSearch,
-          config,
-          jobs: jobs.map(publicJob),
-          total: jobs.length,
-          newCount: jobs.filter((job) => job.isNew).length,
-          verifiedCount: jobs.filter((job) => job.verification?.status === "live").length,
-          checkedCount: jobs.filter((job) => job.verification).length,
-        });
+        const previous = store.searchConfig();
+        const advanced = request.advanced && typeof request.advanced === "object" ? request.advanced : {};
+        const requested = {
+          ...previous,
+          ...plan.searchConfig,
+          ...advanced,
+          broadFeeds: ["jobledger", ...strings(advanced.broadFeeds || previous.broadFeeds)].filter((value, index, values) => values.indexOf(value) === index),
+          autoVerify: request.autoVerify !== false,
+          verifyLimit: Number(request.verifyLimit || previous.verifyLimit || 8),
+        };
+        const outcome = await executeSearch(requested, plan);
+        return json(res, outcome.status, outcome.payload);
       }
       json(res, 404, { error: "Not found" });
     } catch (error) {
@@ -398,6 +438,10 @@ function rememberDiscovered(cache, jobs) {
   for (const job of jobs) {
     cache.delete(job.url);
     cache.set(job.url, job);
+    if (applicationTarget(job) !== job.url) {
+      cache.delete(job.applyUrl);
+      cache.set(job.applyUrl, job);
+    }
   }
   while (cache.size > 10_000) cache.delete(cache.keys().next().value);
 }
@@ -427,7 +471,7 @@ export async function autoVerify(jobs, limit, verifyFn, verifications, discovere
       const job = selected[cursor++];
       let verification;
       try {
-        verification = await verifyFn(job.url);
+        verification = await verifyFn(applicationTarget(job));
       } catch {
         verification = { status: "inconclusive", url: job.url, checkedAt: new Date().toISOString(), reason: "Verifier failed unexpectedly. Retry, open the source, or discard it.", signals: [] };
       }
@@ -447,8 +491,18 @@ export async function autoVerify(jobs, limit, verifyFn, verifications, discovere
   return jobs.map((job) => outcomes.has(job.url) ? { ...job, verification: outcomes.get(job.url), verificationStatus: outcomes.get(job.url).status } : job);
 }
 function publicJob(job) {
-  const { description: _description, applyUrl: _applyUrl, ...visible } = job;
-  return visible;
+  return {
+    ...job,
+    description: shortText(job.description, 24_000),
+    applyUrl: applicationTarget(job) !== job.url ? applicationTarget(job) : "",
+  };
+}
+function applicationTarget(job) {
+  try { return new URL(job.applyUrl).protocol === "https:" ? job.applyUrl : job.url; }
+  catch { return job.url; }
+}
+function verificationPriority(job) {
+  return ({ live: 0, unverified: 1, inconclusive: 2, blocked: 3, closed: 4 })[job.verificationStatus || "unverified"] ?? 2;
 }
 function combinedReadiness(profile, resume) {
   const targeting = profileReadiness(profile);

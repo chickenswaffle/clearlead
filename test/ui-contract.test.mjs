@@ -17,17 +17,24 @@ test("UI script selectors resolve to unique HTML ids", () => {
   }
 });
 
-test("resume onboarding appears before search and tailoring has an output surface", () => {
+test("resume onboarding leads to one plain-English search and a simple review-resume-apply flow", () => {
   assert.ok(html.indexOf('id="resume"') < html.indexOf('id="search"'));
   assert.ok(html.indexOf('id="ai-setup"') < html.indexOf('id="search"'));
   assert.match(html, /id="tailor-output"/);
   assert.match(html, /OpenRouter/);
   assert.match(html, /application\/pdf/);
   assert.match(script, /\/api\/resume\/pdf/);
-  assert.match(script, /Build AI kit/);
+  assert.match(html, /id="smart-search"/);
+  assert.match(html, /id="use-ai-search"/);
+  const aiSearchInput = html.match(/<input[^>]*id="use-ai-search"[^>]*>/)?.[0] || "";
+  assert.doesNotMatch(aiSearchInput, /\schecked(?:\s|>|=)/, "AI search must require an explicit user opt-in");
+  assert.match(html, /Entry level tech jobs in DFW/);
+  assert.match(script, /\/api\/search\/smart/);
+  assert.match(script, /Make custom resume/);
+  assert.match(script, /Read job description/);
   assert.match(html, /id="pair-extension"/);
   assert.match(html, /id="full-name"/);
-  assert.match(script, /Prepare autofill/);
-  assert.match(html, /Automatically verify top matches/);
+  assert.match(script, />Apply</);
+  assert.match(html, /Verify top matches/);
   assert.match(script, /Tailoring is available for roles found through ranked search/);
 });

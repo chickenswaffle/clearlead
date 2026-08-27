@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverLever, discoverAshby, discoverRemotive, discoverArbeitnow, createSourceDiscovery } from "../src/sources.mjs";
+import { discoverLever, discoverAshby, discoverRemotive, discoverArbeitnow, discoverJobLedger, createSourceDiscovery } from "../src/sources.mjs";
 
 function response(payload, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => payload };
@@ -29,6 +29,23 @@ test("broad feed fixtures normalize Remotive and Arbeitnow", async () => {
   assert.equal(arbeitnow.jobs[0].description, "SQL");
 });
 
+test("public job ledger fans out expanded terms and normalizes employer-direct descriptions", async () => {
+  const urls = [];
+  const ledger = await discoverJobLedger({
+    plan: { ledgerQueries: ["help desk", "technical support"], filters: { country: "US", state: "TX" } },
+    fetchFn: async (url) => {
+      urls.push(String(url));
+      return response({ data: [{ title: "Technical Support Specialist", company: "Hospital One", location: "Dallas", apply_url: "https://example.org/apply/1", source: "workday", posted_at: "2026-08-20T00:00:00Z", description: "Support hospital computers and users." }] });
+    },
+  });
+  assert.equal(urls.length, 2);
+  assert.match(urls[0], /country=US/);
+  assert.match(urls[0], /state=TX/);
+  assert.equal(ledger.jobs.length, 1, "duplicate listings from query fan-out are removed");
+  assert.equal(ledger.jobs[0].description, "Support hospital computers and users.");
+  assert.equal(ledger.jobs[0].board, "workday");
+});
+
 test("source failures stay explicit and successful feeds are cached", async () => {
   let calls = 0;
   const discover = createSourceDiscovery({ fetchFn: async () => { calls += 1; return response({ jobs: [] }); }, now: () => 1000 });
@@ -39,4 +56,13 @@ test("source failures stay explicit and successful feeds are cached", async () =
   const failed = await discoverLever("acme", { fetchFn: async () => response({}, 503) });
   assert.match(failed.error, /HTTP 503/);
   assert.deepEqual(failed.jobs, []);
+});
+
+test("public job ledger cache is isolated by the generated search plan", async () => {
+  let calls = 0;
+  const discover = createSourceDiscovery({ fetchFn: async () => { calls += 1; return response({ data: [] }); }, now: () => 1000 });
+  await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["help desk"], filters: { state: "TX" } } });
+  await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["help desk"], filters: { state: "TX" } } });
+  await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["data analyst"], filters: { state: "TX" } } });
+  assert.equal(calls, 2);
 });

@@ -23,9 +23,9 @@ document.querySelector('#resume-file').addEventListener('change', loadResumeFile
 document.querySelector('#search-jobs').addEventListener('click', () => searchJobs());
 document.querySelector('#search-top').addEventListener('click', () => {
   document.querySelector(resumeReady ? '#search' : '#resume').scrollIntoView({behavior: 'smooth'});
-  if (resumeReady) searchJobs();
+  if (resumeReady) document.querySelector('#smart-search').focus();
 });
-document.querySelector('#role-query').addEventListener('keydown', (event) => {
+document.querySelector('#smart-search').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') searchJobs();
 });
 document.querySelector('#save-provider').addEventListener('click', saveProvider);
@@ -231,23 +231,27 @@ async function searchJobs({silent = false} = {}) {
   button.disabled = true;
   button.textContent = 'Building ranked pool…';
   if (!silent) {
-    searchSummary.textContent = 'Reading ATS and broad feeds, deduplicating, ranking, then verifying the top matches…';
+    searchSummary.textContent = 'Expanding your request, searching employer-direct and ATS sources, ranking from your resume, then checking the best matches…';
     searchResults.innerHTML = loadingCards();
   }
   try {
-    const data = await requestJson('/api/search', {method: 'POST', body: JSON.stringify(readSearchConfig())});
+    const prompt = document.querySelector('#smart-search').value.trim();
+    if (!prompt) throw new Error('Type the kind of job you want first.');
+    const advancedOpen = document.querySelector('.advanced-search').open;
+    const data = await requestJson('/api/search/smart', {method: 'POST', body: JSON.stringify({prompt, useAI: aiState.configured && document.querySelector('#use-ai-search').checked, autoVerify: document.querySelector('#auto-verify').checked, verifyLimit: Number(document.querySelector('#verify-limit').value), advanced: advancedOpen ? readSearchConfig() : undefined})});
     renderSearch(data);
+    showSearchConfig(data.config);
     appState = {...appState, searchConfig: data.config, searchStatus: {lastRunAt: data.searchedAt}};
     scheduleRefresh(data.config);
   } catch (error) {
     searchSummary.textContent = 'Search failed. Nothing was added or marked live.';
-    searchResults.innerHTML = `<div class="empty-state"><strong>${escape(error.message)}</strong><p>Retry the sources or adjust the board list.</p><button class="button ghost" id="retry-search">Retry search</button></div>`;
+    searchResults.innerHTML = `<div class="empty-state"><strong>${escape(error.message)}</strong><p>Retry, or open Fine-tune search if you want to adjust sources.</p><button class="button ghost" id="retry-search">Retry search</button></div>`;
     document.querySelector('#retry-search').addEventListener('click', () => searchJobs());
     document.querySelector('#next-refresh').textContent = 'auto-refresh paused after error';
   } finally {
     searching = false;
     button.disabled = !resumeReady;
-    button.textContent = 'Search, rank & verify';
+    button.textContent = 'Find my best matches';
   }
 }
 
@@ -266,6 +270,8 @@ function renderSearch(data) {
     : data.jobs.length
       ? data.jobs.map(jobCard).join('')
       : '<div class="empty-state"><strong>No matching postings in the current pool.</strong><p>Try fewer title words, remove the location filter, or restore more source boards.</p></div>';
+  const plan = document.querySelector('#search-plan');
+  plan.innerHTML = data.plan ? `<strong>${escape(data.plan.mode === 'ai' ? 'AI-expanded search' : 'Built-in expanded search')} · ${escape(data.plan.explanation)}</strong>${(data.plan.titles || []).slice(0, 10).map((item) => `<span>${escape(item)}</span>`).join('')}${(data.plan.locations || []).slice(0, 8).map((item) => `<span>near ${escape(item)}</span>`).join('')}${data.plan.note ? `<span>${escape(data.plan.note)}</span>` : ''}` : '';
   document.querySelector('#retry-outage')?.addEventListener('click', () => searchJobs());
   wireJobActions(searchResults);
 }
@@ -277,19 +283,20 @@ function jobCard(job) {
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
   const actions = status === 'live'
-    ? `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
+    ? `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
-      : `<button class="button primary" data-verify-url="${escape(job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'live' : 'again'}</button>`;
+      : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
   const skills = job.match?.matchedSkills?.length ? job.match.matchedSkills.join(', ') : job.match?.matchedKeywords?.slice(0, 5).join(', ');
   const breakdown = job.match?.breakdown;
-  return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.url)}">
+  return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
     <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
     <h3>${escape(job.title)}</h3>
     <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
-    <div class="score-row"><strong>${score}</strong><span>resume match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · fresh ${breakdown.freshness}</i>` : ''}</div>
+    <div class="score-row"><strong>${score}</strong><span>resume match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · sector ${breakdown.sector ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
     <div class="match-copy">${skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found'}${check?.reason ? `<br>${escape(check.reason)}` : ''}</div>
+    <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     <div class="job-actions">${actions}<a class="text-link" href="${escape(job.url)}" target="_blank" rel="noreferrer">open source ↗</a></div>
   </article>`;
 }
@@ -306,6 +313,7 @@ function wireJobActions(container) {
   container.querySelectorAll('[data-save]').forEach((button) => button.addEventListener('click', () => queueLead(button.dataset.save, button)));
   container.querySelectorAll('[data-tailor]').forEach((button) => button.addEventListener('click', () => createTailoredDraft(button.dataset.tailor, button)));
   container.querySelectorAll('[data-kit]').forEach((button) => button.addEventListener('click', () => createApplicationKit(button.dataset.kit, button)));
+  container.querySelectorAll('[data-resume]').forEach((button) => button.addEventListener('click', () => makeCustomResume(button.dataset.resume, button)));
   container.querySelectorAll('[data-autofill]').forEach((button) => button.addEventListener('click', () => prepareAutofill(button.dataset.autofill, button)));
 }
 
@@ -331,9 +339,9 @@ function renderResult(check) {
   result.innerHTML = `<div class="status">${escape(check.status || 'invalid request')}</div><strong>${escape(check.reason || check.error)}</strong><p class="why">${check.checkedAt ? `checked ${new Date(check.checkedAt).toLocaleString()}` : ''}${check.httpStatus ? ` · HTTP ${check.httpStatus}` : ''}${check.signals?.length ? `<br>signals: ${escape(check.signals.join(' + '))}` : ''}${check.finalUrl || check.url ? `<br>${escape(check.finalUrl || check.url)}` : ''}</p>`;
   if (check.status === 'live') {
     const tailorAction = check.title
-      ? `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI application kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
+      ? `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button>`
       : '<span class="quiet">Tailoring is available for roles found through ranked search.</span>';
-    result.insertAdjacentHTML('beforeend', `<div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Add to review queue</button>${tailorAction}</div>`);
+    result.insertAdjacentHTML('beforeend', `<div class="result-actions">${tailorAction}</div>`);
     wireJobActions(result);
   } else if (check.status === 'blocked' || check.status === 'inconclusive') {
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Nothing was saved. Choose what happens next.</p>${actionMarkup(check.finalUrl || check.url)}`);
@@ -355,6 +363,11 @@ async function queueLead(verificationId, button) {
   }
 }
 
+async function makeCustomResume(verificationId, button) {
+  if (aiState.configured) return createApplicationKit(verificationId, button);
+  return createTailoredDraft(verificationId, button);
+}
+
 async function createTailoredDraft(verificationId, button) {
   button.disabled = true;
   button.textContent = 'Grounding draft…';
@@ -366,11 +379,11 @@ async function createTailoredDraft(verificationId, button) {
       <p class="quiet">Matched evidence: ${escape(draft.matchedTerms.join(', ') || 'none')}<br>Not added from the job description: ${escape(draft.absentTerms.join(', ') || 'none')}</p>
       <details><summary>Preview draft</summary><pre>${escape(draft.preview)}</pre></details>`;
     tailorOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'Draft ready';
+    button.textContent = 'Custom resume ready';
   } catch (error) {
     tailorOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">Verify the role again, then retry. Nothing was submitted.</p>`;
     button.disabled = false;
-    button.textContent = 'Retry tailoring';
+    button.textContent = 'Retry custom resume';
   }
 }
 
@@ -396,11 +409,11 @@ async function createApplicationKit(verificationId, button) {
       <p class="quiet">Priority language: ${escape(kit.matchedTerms.join(', ') || 'none returned')}<br>Gaps kept out of the resume: ${escape(kit.gaps.join(', ') || 'none returned')}</p>
       <details><summary>Preview audited resume</summary><pre>${escape(kit.preview)}</pre></details>`;
     tailorOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'AI kit ready';
+    button.textContent = 'Custom resume ready';
   } catch (error) {
     tailorOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">No kit was saved and nothing was submitted. You can retry or use the local grounded tailor.</p>`;
     button.disabled = false;
-    button.textContent = 'Retry AI kit';
+    button.textContent = 'Retry custom resume';
   }
 }
 
@@ -412,7 +425,7 @@ async function prepareAutofill(verificationId, button) {
     autofillOutput.className = 'tailor-output active';
     autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">autofill pack ready</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div><p class="quiet">Authorized page: ${escape(pack.allowedPages.join(', '))}. Open that exact verified page, then click <strong>Fill safe fields</strong> in the paired ClearLead extension. Review-only and sensitive fields will be highlighted; Submit is never clicked.</p>`;
     autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'Autofill ready';
+    button.textContent = 'Application ready';
   } catch (error) {
     autofillOutput.className = 'tailor-output active';
     autofillOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">Save your application identity, pair the extension, or verify the role again, then retry.</p>`;
@@ -432,7 +445,7 @@ function updateJobCard(check) {
     card.classList.add('verified');
     const actions = card.querySelector('.job-actions');
     if (actions && check.verificationId) {
-      actions.innerHTML = `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
+      actions.innerHTML = `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
       wireJobActions(actions);
     }
   } else if (check.status === 'closed') {
@@ -494,7 +507,7 @@ async function loadState({autoSearch = true} = {}) {
     renderQueue(data.leads);
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
     const hasPreviousSearch = Boolean(data.searchStatus.lastRunAt);
-    if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch) searchJobs({silent: true});
+    if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch && document.querySelector('#smart-search').value.trim()) searchJobs({silent: true});
     else scheduleRefresh(data.searchConfig, {startTimer: resumeReady && hasPreviousSearch});
     try { showAI(await requestJson('/api/ai')); }
     catch (error) { showAI({configured: false}); showAIMessage(`${error.message} The core search is still available. Use Remove key to reset the optional vault.`, 'error'); }

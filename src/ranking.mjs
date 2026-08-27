@@ -2,7 +2,7 @@ import { terms } from "./resume.mjs";
 
 const SENIORITY = new Set(["intern", "junior", "associate", "senior", "staff", "principal", "lead", "manager", "director", "head", "vp", "chief"]);
 
-export function rankJob(job, { resume = {}, profile = {}, query = "", location = "", now = new Date() } = {}) {
+export function rankJob(job, { resume = {}, profile = {}, query = "", location = "", plan = {}, now = new Date() } = {}) {
   const titleTerms = terms(job.title);
   const descriptionTerms = terms(job.description).slice(0, 900);
   const jobTerms = new Set([...titleTerms, ...descriptionTerms]);
@@ -23,7 +23,15 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
     : preferredLocations.some((value) => String(job.location).toLowerCase().includes(value.toLowerCase())) ? 100 : 0;
   const ageDays = daysOld(job.postedAt, now);
   const freshnessScore = ageDays === null ? 35 : ageDays <= 3 ? 100 : ageDays <= 14 ? 80 : ageDays <= 30 ? 60 : ageDays <= 90 ? 35 : 10;
-  const score = Math.round(titleScore * 0.4 + skillScore * 0.4 + locationScore * 0.1 + freshnessScore * 0.1);
+  const hasPlan = Boolean(plan && Object.keys(plan).length);
+  const sectors = Array.isArray(plan.sectors) ? plan.sectors : [];
+  const sectorText = `${job.company} ${job.category || ""} ${String(job.description || "").slice(0, 1_500)}`.toLowerCase();
+  const sectorScore = sectors.length ? (sectors.some((sector) => sectorText.includes(String(sector).toLowerCase()) || sectorAliases(sector).some((alias) => sectorText.includes(alias))) ? 100 : 0) : 60;
+  const seniorityPenalty = plan.seniority === "entry" && /\b(senior|sr\.?|lead|manager|director|principal|staff)\b/i.test(job.title || "") ? 18 : 0;
+  const locationPenalty = hasPlan && preferredLocations.length > 0 && locationScore === 0 && !/\bremote\b/i.test(`${job.location} ${job.workplaceType || ""}`) ? 20 : 0;
+  const score = hasPlan
+    ? Math.max(0, Math.round(titleScore * 0.3 + skillScore * 0.35 + locationScore * 0.15 + freshnessScore * 0.1 + sectorScore * 0.1 - seniorityPenalty - locationPenalty))
+    : Math.round(titleScore * 0.4 + skillScore * 0.4 + locationScore * 0.1 + freshnessScore * 0.1);
   const jobImportant = [...new Set([...titleTerms, ...descriptionTerms])]
     .filter((term) => term.length > 2 && !resumeTerms.has(term))
     .slice(0, 8);
@@ -38,8 +46,17 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
       resume: Math.round(skillScore),
       location: Math.round(locationScore),
       freshness: Math.round(freshnessScore),
+      ...(hasPlan ? { sector: Math.round(sectorScore) } : {}),
     },
   };
+}
+
+function sectorAliases(value) {
+  const key = String(value).toLowerCase();
+  if (key === "healthcare") return ["hospital", "healthcare", "medical center", "clinic"];
+  if (key === "education") return ["school", "district", "university", "college", "education", "campus"];
+  if (key === "public sector") return ["government", "city of", "county", "public sector"];
+  return [key];
 }
 
 export function dedupeJobs(jobs) {
