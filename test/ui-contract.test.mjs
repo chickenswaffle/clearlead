@@ -22,7 +22,12 @@ test("resume onboarding appears before search and tailoring has an output surfac
   assert.ok(html.indexOf('id="ai-setup"') < html.indexOf('id="search"'));
   assert.match(html, /id="tailor-output"/);
   assert.match(html, /OpenRouter/);
+  assert.match(html, /application\/pdf/);
+  assert.match(script, /\/api\/resume\/pdf/);
   assert.match(script, /Build AI kit/);
+  assert.match(html, /id="pair-extension"/);
+  assert.match(html, /id="full-name"/);
+  assert.match(script, /Prepare autofill/);
   assert.match(html, /Automatically verify top matches/);
   assert.match(script, /Tailoring is available for roles found through ranked search/);
 });

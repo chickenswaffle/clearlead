@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"><title>ClearLead Copilot</title></head>
+<body>
+  <header><span>&gt;</span> clearlead_<small>application copilot</small></header>
+  <main>
+    <section id="pairing">
+      <label for="token">Pairing token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="Paste token from ClearLead">
+      <button id="save-token">Pair extension</button>
+      <p>Tokens stay in this extension profile and can be invalidated from ClearLead.</p>
+    </section>
+    <section id="ready" hidden>
+      <div class="status"><i></i><span id="pair-status">paired locally</span></div>
+      <button id="fill">Fill safe fields</button>
+      <button id="forget" class="secondary">Forget pairing</button>
+      <p>ClearLead never clicks Submit. Existing answers, legal questions, EEO fields, checkboxes, radio buttons, and file uploads remain untouched.</p>
+    </section>
+    <div id="result" role="status"></div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

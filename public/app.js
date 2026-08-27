@@ -7,6 +7,7 @@ const searchResults = document.querySelector('#search-results');
 const searchSummary = document.querySelector('#search-summary');
 const sourceHealth = document.querySelector('#source-health');
 const tailorOutput = document.querySelector('#tailor-output');
+const autofillOutput = document.querySelector('#autofill-output');
 let current = null;
 let appState = null;
 let resumeReady = false;
@@ -31,6 +32,7 @@ document.querySelector('#save-provider').addEventListener('click', saveProvider)
 document.querySelector('#test-provider').addEventListener('click', testProvider);
 document.querySelector('#remove-provider').addEventListener('click', removeProvider);
 document.querySelector('#ai-provider').addEventListener('change', updateModelPlaceholder);
+document.querySelector('#pair-extension').addEventListener('click', pairExtension);
 
 function updateModelPlaceholder() {
   const provider = document.querySelector('#ai-provider').value;
@@ -94,13 +96,27 @@ function showAIMessage(message, type = '') {
 async function loadResumeFile(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-  if (!/\.(txt|md|markdown)$/i.test(file.name)) {
-    showResumeError('Use a .txt or .md file, or paste the resume text directly.');
+  if (!/\.(pdf|txt|md|markdown)$/i.test(file.name)) {
+    showResumeError('Use a PDF, .txt, or .md file, or paste the resume text directly.');
     return;
   }
-  document.querySelector('#resume-text').value = await file.text();
-  document.querySelector('#save-resume').dataset.filename = file.name;
-  resumeStatus.textContent = `${file.name} loaded — index it to continue.`;
+  const button = document.querySelector('#save-resume');
+  try {
+    if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+      if (file.size > 10 * 1024 * 1024) throw new Error('Resume PDF is too large. Use a file under 10 MB.');
+      resumeStatus.className = 'readiness';
+      resumeStatus.textContent = `Extracting ${file.name} locally…`;
+      const response = await fetch('/api/resume/pdf', {method: 'POST', headers: {'content-type': 'application/pdf'}, body: file});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `PDF extraction failed with HTTP ${response.status}.`);
+      document.querySelector('#resume-text').value = data.text;
+      resumeStatus.textContent = `${data.message} ${data.wordCount} words found.${data.warnings?.length ? ` ${data.warnings.join(' ')}` : ''}`;
+    } else {
+      document.querySelector('#resume-text').value = await file.text();
+      resumeStatus.textContent = `${file.name} loaded — review and index it to continue.`;
+    }
+    button.dataset.filename = file.name;
+  } catch (error) { showResumeError(error.message); }
 }
 
 async function saveResume() {
@@ -154,22 +170,52 @@ async function saveProfile() {
   readiness.className = 'readiness';
   readiness.textContent = 'saving locally…';
   try {
-    const data = await requestJson('/api/profile', {
-      method: 'POST',
-      body: JSON.stringify({
+    const [data, application] = await Promise.all([
+      requestJson('/api/profile', {method: 'POST', body: JSON.stringify({
         targetRoles: list('#target-roles'),
         locations: list('#locations'),
         mustHaves: list('#must-haves'),
-      }),
-    });
-    appState = {...appState, profile: data.profile};
+      })}),
+      requestJson('/api/application-profile', {method: 'POST', body: JSON.stringify(readApplicationProfile())}),
+    ]);
+    appState = {...appState, profile: data.profile, applicationProfile: application.applicationProfile, applicationReadiness: application.readiness};
     showProfile(data.profile, data.readiness);
-    readiness.textContent = `${data.readiness.message} Saved locally.`;
+    showApplicationProfile(application.applicationProfile, application.readiness);
+    readiness.textContent = `${data.readiness.message} ${application.readiness.message} Saved locally.`;
   } catch (error) {
     readiness.className = 'readiness not-ready';
     readiness.innerHTML = `${escape(error.message)} <button class="button ghost" id="retry-profile">Retry</button>`;
     document.querySelector('#retry-profile').addEventListener('click', saveProfile);
   }
+}
+
+function readApplicationProfile() {
+  return {
+    fullName: value('#full-name'), email: value('#application-email'), phone: value('#application-phone'), location: value('#application-location'),
+    city: value('#application-city'), state: value('#application-state'), postalCode: value('#application-postal'), country: value('#application-country'),
+    linkedinUrl: value('#linkedin-url'), githubUrl: value('#github-url'), portfolioUrl: value('#portfolio-url'), desiredSalary: value('#desired-salary'),
+    workAuthorization: value('#work-authorization'), needsSponsorship: value('#needs-sponsorship'), relocation: value('#relocation'),
+  };
+}
+
+function showApplicationProfile(profile = {}, state = {}) {
+  const fields = {'#full-name':'fullName','#application-email':'email','#application-phone':'phone','#application-location':'location','#application-city':'city','#application-state':'state','#application-postal':'postalCode','#application-country':'country','#linkedin-url':'linkedinUrl','#github-url':'githubUrl','#portfolio-url':'portfolioUrl','#desired-salary':'desiredSalary','#work-authorization':'workAuthorization','#needs-sponsorship':'needsSponsorship','#relocation':'relocation'};
+  const choiceFields = new Set(['#work-authorization', '#needs-sponsorship', '#relocation']);
+  for (const [selector, key] of Object.entries(fields)) document.querySelector(selector).value = profile[key] || (choiceFields.has(selector) ? 'unknown' : '');
+  if (state.message && !state.ready) readiness.textContent = `${readiness.textContent} ${state.message}`.trim();
+}
+
+async function pairExtension() {
+  const button = document.querySelector('#pair-extension');
+  button.disabled = true;
+  try {
+    const pairing = await requestJson('/api/extension/pair', {method: 'POST', body: '{}'});
+    document.querySelector('#extension-status').className = 'readiness ready';
+    document.querySelector('#extension-status').textContent = 'Pairing token ready.';
+    document.querySelector('#pairing-output').innerHTML = `<p>1. Open <code>chrome://extensions</code>, enable Developer mode, and load this unpacked folder:</p><code>${escape(pairing.extensionPath)}</code><p>2. Paste this pairing token into the ClearLead extension:</p><div class="token-row"><code id="pairing-token">${escape(pairing.token)}</code><button class="button ghost" id="copy-pairing">Copy token</button></div><p class="quiet">Creating another token invalidates this one.</p>`;
+    document.querySelector('#copy-pairing').addEventListener('click', async () => { await navigator.clipboard.writeText(pairing.token); document.querySelector('#copy-pairing').textContent = 'Copied'; });
+  } catch (error) { document.querySelector('#pairing-output').textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
 async function searchJobs({silent = false} = {}) {
@@ -231,7 +277,7 @@ function jobCard(job) {
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
   const actions = status === 'live'
-    ? `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
+    ? `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
       : `<button class="button primary" data-verify-url="${escape(job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'live' : 'again'}</button>`;
@@ -260,6 +306,7 @@ function wireJobActions(container) {
   container.querySelectorAll('[data-save]').forEach((button) => button.addEventListener('click', () => queueLead(button.dataset.save, button)));
   container.querySelectorAll('[data-tailor]').forEach((button) => button.addEventListener('click', () => createTailoredDraft(button.dataset.tailor, button)));
   container.querySelectorAll('[data-kit]').forEach((button) => button.addEventListener('click', () => createApplicationKit(button.dataset.kit, button)));
+  container.querySelectorAll('[data-autofill]').forEach((button) => button.addEventListener('click', () => prepareAutofill(button.dataset.autofill, button)));
 }
 
 async function runVerification(discoveredUrl, metadata = {}) {
@@ -284,7 +331,7 @@ function renderResult(check) {
   result.innerHTML = `<div class="status">${escape(check.status || 'invalid request')}</div><strong>${escape(check.reason || check.error)}</strong><p class="why">${check.checkedAt ? `checked ${new Date(check.checkedAt).toLocaleString()}` : ''}${check.httpStatus ? ` · HTTP ${check.httpStatus}` : ''}${check.signals?.length ? `<br>signals: ${escape(check.signals.join(' + '))}` : ''}${check.finalUrl || check.url ? `<br>${escape(check.finalUrl || check.url)}` : ''}</p>`;
   if (check.status === 'live') {
     const tailorAction = check.title
-      ? `<button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI application kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
+      ? `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI application kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button>`
       : '<span class="quiet">Tailoring is available for roles found through ranked search.</span>';
     result.insertAdjacentHTML('beforeend', `<div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Add to review queue</button>${tailorAction}</div>`);
     wireJobActions(result);
@@ -357,6 +404,23 @@ async function createApplicationKit(verificationId, button) {
   }
 }
 
+async function prepareAutofill(verificationId, button) {
+  button.disabled = true;
+  button.textContent = 'Preparing…';
+  try {
+    const pack = await requestJson('/api/application/prepare', {method: 'POST', body: JSON.stringify({verificationId})});
+    autofillOutput.className = 'tailor-output active';
+    autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">autofill pack ready</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div><p class="quiet">Authorized page: ${escape(pack.allowedPages.join(', '))}. Open that exact verified page, then click <strong>Fill safe fields</strong> in the paired ClearLead extension. Review-only and sensitive fields will be highlighted; Submit is never clicked.</p>`;
+    autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
+    button.textContent = 'Autofill ready';
+  } catch (error) {
+    autofillOutput.className = 'tailor-output active';
+    autofillOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">Save your application identity, pair the extension, or verify the role again, then retry.</p>`;
+    button.disabled = false;
+    button.textContent = 'Retry autofill';
+  }
+}
+
 function updateJobCard(check) {
   const card = [...document.querySelectorAll('.job-card')].find((item) => item.dataset.jobUrl === check.url);
   if (!card || !check.status) return;
@@ -368,7 +432,7 @@ function updateJobCard(check) {
     card.classList.add('verified');
     const actions = card.querySelector('.job-actions');
     if (actions && check.verificationId) {
-      actions.innerHTML = `<button class="button primary" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
+      actions.innerHTML = `<button class="button primary" data-autofill="${escape(check.verificationId)}">Prepare autofill</button><button class="button ghost" data-save="${escape(check.verificationId)}">Add to queue</button><button class="button ghost" data-kit="${escape(check.verificationId)}">Build AI kit</button><button class="button ghost" data-tailor="${escape(check.verificationId)}">Tailor locally</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
       wireJobActions(actions);
     }
   } else if (check.status === 'closed') {
@@ -423,6 +487,9 @@ async function loadState({autoSearch = true} = {}) {
     appState = data;
     showResume(data.resume);
     showProfile(data.profile, data.readiness);
+    showApplicationProfile(data.applicationProfile, data.applicationReadiness);
+    document.querySelector('#extension-status').className = `readiness ${data.extensionPaired ? 'ready' : 'not-ready'}`;
+    document.querySelector('#extension-status').textContent = data.extensionPaired ? 'Extension pairing exists.' : 'Extension not paired.';
     showSearchConfig(data.searchConfig);
     renderQueue(data.leads);
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
@@ -464,6 +531,7 @@ function loadingCards() { return '<div class="empty-state"><strong>Building the 
 function relativeTime(value) { const time = Date.parse(value || ''); if (!Number.isFinite(time)) return 'unknown'; const seconds = Math.round((time - Date.now()) / 1000); const absolute = Math.abs(seconds); if (absolute < 60) return 'just now'; const formatter = new Intl.RelativeTimeFormat('en', {numeric: 'auto'}); if (absolute < 3600) return formatter.format(Math.round(seconds / 60), 'minute'); if (absolute < 86400) return formatter.format(Math.round(seconds / 3600), 'hour'); return formatter.format(Math.round(seconds / 86400), 'day'); }
 function safeHttpUrl(value) { try { return /^https?:$/.test(new URL(value).protocol); } catch { return false; } }
 function list(selector) { return document.querySelector(selector).value.split(/[,\n]/).map((value) => value.trim()).filter(Boolean); }
+function value(selector) { return document.querySelector(selector).value.trim(); }
 function termChip(value) { return `<span>${escape(value)}</span>`; }
 function providerName(value) { return ({openrouter:'OpenRouter', openai:'OpenAI', anthropic:'Anthropic'})[value] || 'AI provider'; }
 function escape(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }

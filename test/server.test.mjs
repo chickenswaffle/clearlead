@@ -102,6 +102,26 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.equal(check.board, "example");
   assert.equal(check.company, "Example");
   assert.equal(typeof check.firstSeenAt, "string");
+  const application = await postJson(`${base}/api/application-profile`, { fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567", linkedinUrl: "https://linkedin.com/in/taylor", workAuthorization: "unknown" });
+  assert.equal(application.readiness.ready, true);
+  const pairing = await postJson(`${base}/api/extension/pair`, {});
+  assert.equal(typeof pairing.token, "string");
+  assert.doesNotMatch(fs.readFileSync(path.join(dataDir, "extension-pairing.json"), "utf8"), new RegExp(pairing.token));
+  const prepared = await postJson(`${base}/api/application/prepare`, { verificationId: check.verificationId });
+  assert.equal(prepared.policy.submit, "never");
+  assert.deepEqual(prepared.allowedPages, [new URL(check.finalUrl).origin + new URL(check.finalUrl).pathname]);
+  const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const extensionSessionResponse = await fetch(`${base}/api/extension/session`, { headers: { origin: extensionOrigin, authorization: `Bearer ${pairing.token}` } });
+  assert.equal(extensionSessionResponse.status, 200);
+  const extensionSession = await extensionSessionResponse.json();
+  const extensionPackResponse = await fetch(`${base}/api/extension/pack`, { headers: { origin: extensionOrigin, authorization: `Bearer ${extensionSession.capability}` } });
+  assert.equal(extensionPackResponse.status, 200);
+  assert.equal(extensionPackResponse.headers.get("access-control-allow-origin"), extensionOrigin);
+  const extensionPack = await extensionPackResponse.json();
+  assert.equal(extensionPack.profile.email, "taylor@example.com");
+  assert.equal(extensionPack.policy.submit, "never");
+  const rejectedExtension = await fetch(`${base}/api/extension/pack`, { headers: { origin: extensionOrigin, authorization: "Bearer wrong-token" } });
+  assert.equal(rejectedExtension.status, 401);
   const saved = await postJson(`${base}/api/leads`, { verificationId: check.verificationId });
   assert.equal(saved.saved, true);
 
@@ -252,6 +272,31 @@ Platform engineer building reliable Python services.
   assert.equal(coreState.status, 200);
   const removed = await postJson(`${base}/api/ai/provider/remove`, {});
   assert.equal(removed.configured, false);
+});
+
+test("PDF resume upload extracts a review preview and does not persist it", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-pdf-api-"));
+  let received = null;
+  const server = createAppServer({ dataDir, extractPdfFn: async (buffer) => {
+    received = buffer;
+    return { text: "Taylor Example\nPlatform engineer with extensive experience building reliable Python and Kubernetes production services across multiple product teams.", pageCount: 2, wordCount: 17, warnings: ["Review formatting."] };
+  } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(async () => {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const response = await fetch(`${base}/api/resume/pdf`, { method: "POST", headers: { "content-type": "application/pdf" }, body: Buffer.from("%PDF-fixture") });
+  assert.equal(response.status, 200);
+  const preview = await response.json();
+  assert.equal(preview.persisted, false);
+  assert.equal(preview.pageCount, 2);
+  assert.match(preview.text, /Taylor Example/);
+  assert.equal(received.toString(), "%PDF-fixture");
+  assert.equal((await getJson(`${base}/api/leads`)).resume.ready, false);
+  const wrongType = await fetch(`${base}/api/resume/pdf`, { method: "POST", headers: { "content-type": "text/plain" }, body: "fake" });
+  assert.equal(wrongType.status, 415);
 });
 
 async function getJson(url) {

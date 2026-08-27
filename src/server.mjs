@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,8 @@ import { tailorResume } from "./tailor.mjs";
 import { createCredentialVault } from "./vault.mjs";
 import { createProviderClient } from "./ai-providers.mjs";
 import { buildApplicationKit } from "./ai-resume.mjs";
+import { extractResumePdf } from "./pdf-resume.mjs";
+import { applicationProfileReadiness } from "./application-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -22,6 +24,7 @@ export function createAppServer({
   discoverFn,
   discoverSourceFn,
   aiClient = createProviderClient(),
+  extractPdfFn = extractResumePdf,
 } = {}) {
   const store = createStore(dataDir);
   const vault = createCredentialVault(dataDir);
@@ -30,13 +33,31 @@ export function createAppServer({
   const liveVerifications = new Map();
   const discoveredJobs = new Map();
   const aiConsents = new Map();
+  let currentAutofillPack = null;
 
   return http.createServer(async (req, res) => {
-    if (!isTrustedLocalRequest(req)) return json(res, 403, { error: "ClearLead only accepts requests from this local app." });
-    if (req.method === "POST" && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
+    const url = new URL(req.url, "http://127.0.0.1");
+    const extensionSessionApi = url.pathname === "/api/extension/session";
+    const extensionPackApi = url.pathname === "/api/extension/pack";
+    const extensionApi = extensionSessionApi || extensionPackApi;
+    const extensionRequestOrigin = extensionOrigin(req);
+    if (extensionRequestOrigin) res.setHeader("access-control-allow-origin", extensionRequestOrigin);
+    if (req.method === "OPTIONS" && extensionApi && extensionRequestOrigin) {
+      res.writeHead(204, { "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
+      return res.end();
+    }
+    if (extensionApi) {
+      if (!extensionRequestOrigin || !isLocalHost(req)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
+      if (extensionSessionApi) {
+        const pairing = store.extensionPairing();
+        if (!validExtensionToken(req, pairing, extensionRequestOrigin)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
+        if (!pairing.extensionOrigin) store.saveExtensionPairing({ ...pairing, extensionOrigin: extensionRequestOrigin });
+      } else if (!validPackCapability(req, currentAutofillPack, extensionRequestOrigin)) return json(res, 401, { error: "Your autofill session expired. Prepare the job again in ClearLead." });
+    } else if (!isTrustedLocalRequest(req)) return json(res, 403, { error: "ClearLead only accepts requests from this local app." });
+    const isPdfUpload = req.method === "POST" && url.pathname === "/api/resume/pdf";
+    if (req.method === "POST" && !isPdfUpload && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
       return json(res, 415, { error: "ClearLead mutation requests require application/json." });
     }
-    const url = new URL(req.url, "http://127.0.0.1");
     try {
       if (req.method === "GET" && url.pathname === "/") return sendFile(res, path.join(root, "public", "index.html"), "text/html");
       if (req.method === "GET" && url.pathname === "/app.js") return sendFile(res, path.join(root, "public", "app.js"), "text/javascript");
@@ -58,6 +79,7 @@ export function createAppServer({
       if (req.method === "GET" && url.pathname === "/api/leads") {
         const profile = store.profile();
         const resume = resumeSummary(store.resume());
+        const applicationProfile = store.applicationProfile();
         return json(res, 200, {
           leads: store.leads(),
           profile,
@@ -65,7 +87,15 @@ export function createAppServer({
           readiness: combinedReadiness(profile, resume),
           searchConfig: store.searchConfig(),
           searchStatus: store.searchStatus(),
+          applicationProfile,
+          applicationReadiness: applicationProfileReadiness(applicationProfile),
+          extensionPaired: activePairing(store.extensionPairing()),
+          autofillPack: currentAutofillPack ? publicAutofillPack(currentAutofillPack) : null,
         });
+      }
+      if (req.method === "GET" && url.pathname === "/api/application-profile") {
+        const applicationProfile = store.applicationProfile();
+        return json(res, 200, { applicationProfile, readiness: applicationProfileReadiness(applicationProfile) });
       }
       if (req.method === "POST" && url.pathname === "/api/verify") {
         const request = await body(req);
@@ -102,6 +132,11 @@ export function createAppServer({
         const request = await body(req);
         const resume = store.saveResume({ text: request.text, filename: request.filename });
         return json(res, 200, { ok: true, resume: resumeSummary(resume), readiness: combinedReadiness(store.profile(), resumeSummary(resume)) });
+      }
+      if (isPdfUpload) {
+        if (!/^application\/pdf(?:;|$)/i.test(String(req.headers["content-type"] || ""))) return json(res, 415, { error: "Resume PDF uploads require application/pdf." });
+        const extracted = await extractPdfFn(await binaryBody(req, 10 * 1024 * 1024));
+        return json(res, 200, { ...extracted, persisted: false, message: `Extracted ${extracted.pageCount} page${extracted.pageCount === 1 ? "" : "s"}. Review the text before indexing it locally.` });
       }
       if (req.method === "POST" && url.pathname === "/api/tailor") {
         const { verificationId } = await body(req);
@@ -201,6 +236,40 @@ export function createAppServer({
         const saved = store.profile();
         return json(res, 200, { ok: true, profile: saved, readiness: combinedReadiness(saved, resumeSummary(store.resume())) });
       }
+      if (req.method === "POST" && url.pathname === "/api/application-profile") {
+        const applicationProfile = store.saveApplicationProfile(await body(req));
+        currentAutofillPack = null;
+        return json(res, 200, { ok: true, applicationProfile, readiness: applicationProfileReadiness(applicationProfile) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/pair") {
+        const token = randomBytes(32).toString("base64url");
+        const pairedAt = new Date().toISOString();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        store.saveExtensionPairing({ tokenHash: hashToken(token), pairedAt, expiresAt, extensionOrigin: "" });
+        return json(res, 200, { token, pairedAt, expiresAt, extensionPath: path.join(root, "extension"), message: "A new pairing token was created. Any older extension token is now invalid." });
+      }
+      if (req.method === "POST" && url.pathname === "/api/application/prepare") {
+        const { verificationId } = await body(req);
+        const verified = liveVerifications.get(verificationId);
+        if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live" || !verified.job?.title) throw new Error("Verify this ranked role again before preparing autofill.");
+        const applicationProfile = store.applicationProfile();
+        const readiness = applicationProfileReadiness(applicationProfile);
+        if (!readiness.ready) throw new Error(readiness.message);
+        currentAutofillPack = createAutofillPack({ verified, applicationProfile });
+        return json(res, 200, publicAutofillPack(currentAutofillPack));
+      }
+      if (req.method === "GET" && url.pathname === "/api/extension/session") {
+        if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 200, { paired: true, packReady: false });
+        const capability = randomBytes(32).toString("base64url");
+        currentAutofillPack.capabilityHash = hashToken(capability);
+        currentAutofillPack.capabilityOrigin = extensionRequestOrigin;
+        return json(res, 200, { paired: true, packReady: true, capability, expiresAt: new Date(currentAutofillPack.expiresAt).toISOString(), job: currentAutofillPack.job });
+      }
+      if (req.method === "GET" && url.pathname === "/api/extension/pack") {
+        if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 404, { error: "No current autofill pack. Prepare one from a verified job in ClearLead." });
+        const { capabilityHash: _capabilityHash, capabilityOrigin: _capabilityOrigin, ...pack } = currentAutofillPack;
+        return json(res, 200, pack);
+      }
       if (req.method === "POST" && url.pathname === "/api/discover/greenhouse") {
         const { board } = await body(req);
         const discovery = await greenhouseFn(board);
@@ -264,8 +333,8 @@ function strings(value) { return Array.isArray(value) ? value.filter((item) => t
 function shortText(value, limit) { return typeof value === "string" ? value.trim().slice(0, limit) : ""; }
 function isoDate(value) { const time = Date.parse(value || ""); return Number.isFinite(time) ? new Date(time).toISOString() : ""; }
 function isTrustedLocalRequest(req) {
+  if (!isLocalHost(req)) return false;
   const host = String(req.headers.host || "").toLowerCase();
-  if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return false;
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
@@ -275,6 +344,56 @@ function isTrustedLocalRequest(req) {
     return false;
   }
 }
+function isLocalHost(req) { return /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(String(req.headers.host || "").toLowerCase()); }
+function extensionOrigin(req) {
+  const origin = String(req.headers.origin || "");
+  return /^chrome-extension:\/\/[a-p]{32}$/.test(origin) ? origin : "";
+}
+function hashToken(value) { return createHash("sha256").update(String(value || "")).digest("hex"); }
+function activePairing(pairing) { return Boolean(pairing?.tokenHash) && Date.parse(pairing?.expiresAt || "") > Date.now(); }
+function validExtensionToken(req, pairing, origin) {
+  const supplied = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  const expected = String(pairing?.tokenHash || "");
+  if (!activePairing(pairing) || !supplied || !/^[a-f0-9]{64}$/.test(expected)) return false;
+  if (pairing.extensionOrigin && pairing.extensionOrigin !== origin) return false;
+  const actualBuffer = Buffer.from(hashToken(supplied), "hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+function validPackCapability(req, pack, origin) {
+  if (!pack || pack.expiresAt <= Date.now() || pack.capabilityOrigin !== origin) return false;
+  const supplied = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  const expected = String(pack.capabilityHash || "");
+  if (!supplied || !/^[a-f0-9]{64}$/.test(expected)) return false;
+  const actualBuffer = Buffer.from(hashToken(supplied), "hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+function createAutofillPack({ verified, applicationProfile }) {
+  const job = { ...verified.job, ...verified.lead };
+  const verifiedUrl = new URL(verified.lead.finalUrl || verified.lead.url);
+  if (verifiedUrl.protocol !== "https:") throw new Error("Autofill requires a verified HTTPS application page.");
+  verifiedUrl.hash = "";
+  const applicationUrl = verifiedUrl.toString();
+  const allowedPages = [`${verifiedUrl.origin}${normalizedPath(verifiedUrl.pathname)}${verifiedUrl.search}`];
+  const safeProfile = Object.fromEntries([
+    "fullName", "firstName", "lastName", "email", "phone", "location", "city", "state", "postalCode", "country",
+    "linkedinUrl", "githubUrl", "portfolioUrl",
+  ].map((key) => [key, applicationProfile[key] || ""]));
+  return {
+    id: randomUUID(),
+    preparedAt: new Date().toISOString(),
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, reason: job.reason },
+    allowedPages,
+    profile: safeProfile,
+    policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links"], review: ["work authorization", "sponsorship", "salary", "relocation", "free-text answers", "checkboxes", "radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "legal attestations"] },
+  };
+}
+function publicAutofillPack(pack) {
+  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, allowedPages: pack.allowedPages, policy: pack.policy };
+}
+function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
 function rememberDiscovered(cache, jobs) {
   for (const job of jobs) {
     cache.delete(job.url);
@@ -346,3 +465,4 @@ function json(res, status, value) { res.writeHead(status, { "content-type": "app
 function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
 function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"` }); res.end(fs.readFileSync(file)); }
 function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 500_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }
+function binaryBody(req, limit) { return new Promise((resolve, reject) => { const chunks = []; let size = 0; let tooLarge = false; req.on("data", (part) => { size += part.length; if (size > limit) { tooLarge = true; chunks.length = 0; } else if (!tooLarge) chunks.push(part); }); req.on("end", () => tooLarge ? reject(new Error(`Resume PDF is too large. Use a file under ${Math.floor(limit / 1024 / 1024)} MB.`)) : resolve(Buffer.concat(chunks))); req.on("error", reject); }); }

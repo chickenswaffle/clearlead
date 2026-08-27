@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "ClearLead Application Copilot",
+  "version": "0.1.0",
+  "description": "Fills safe job-application fields from a locally paired ClearLead profile and never submits forms.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["http://127.0.0.1:4173/*", "http://localhost:4173/*"],
+  "action": { "default_title": "ClearLead Application Copilot", "default_popup": "popup.html" },
+  "content_scripts": [{ "matches": ["http://*/*", "https://*/*"], "js": ["content.js"], "run_at": "document_idle" }]
+}

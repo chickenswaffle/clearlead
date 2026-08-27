@@ -15,7 +15,7 @@ Open `http://localhost:4173`.
 
 ## Current workflow
 
-1. Paste or load a plain-text/Markdown resume. Its raw text stays in the local data directory; the browser state API returns only an extracted summary.
+1. Paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
 2. Search Greenhouse, Lever, and Ashby company boards plus the broad Remotive and Arbeitnow feeds. Starter source tokens are validated and configurable.
 3. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/freshness breakdown.
 4. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
@@ -24,6 +24,18 @@ Open `http://localhost:4173`.
 7. Optionally add your own OpenRouter, OpenAI API, or Anthropic API key and model ID. Saving and testing the key sends no resume data. An OpenAI API key is separate from a ChatGPT subscription.
 8. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
 9. Optional auto-refresh repeats the saved search every 2, 5, 15, or 30 minutes while the app is open. Broad feeds are cached according to their public API guidance.
+
+## Application Copilot extension
+
+ClearLead includes an unpacked Manifest V3 Chrome extension under `extension/`:
+
+1. Open `chrome://extensions`, enable Developer mode, and load the `extension/` folder.
+2. Save the Application Identity section in ClearLead.
+3. Create a pairing token and paste it into the extension. ClearLead stores only the token hash.
+4. Verify a ranked job and choose **Prepare autofill**.
+5. Open the prepared application and choose **Fill safe fields** in the extension.
+
+The extension fills only recognized candidate contact/location/public-link fields, never overwrites an existing answer, and only runs on the exact verified HTTPS page (including its job-specific query). Pairing expires, binds to one extension installation, and exchanges for a short-lived pack capability. Review-only fields are amber, sensitive/legal/third-party-contact fields are red and untouched, and manual file uploads are blue. The extension has no code path that clicks or invokes Submit.
 
 ## AI safety and local credentials
 

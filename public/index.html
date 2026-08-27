@@ -65,7 +65,7 @@
             <label for="resume-text">Paste your resume</label>
             <textarea id="resume-text" placeholder="Paste the complete text of your resume here. Markdown and plain text are supported."></textarea>
             <div class="resume-actions">
-              <label class="button ghost file-button">Load .txt or .md<input id="resume-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
+              <label class="button ghost file-button">Load PDF, .txt or .md<input id="resume-file" type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"></label>
               <button id="save-resume" class="button primary">Index resume locally</button>
             </div>
           </div>
@@ -73,7 +73,7 @@
         <aside class="panel resume-insights">
           <p class="eyebrow">extracted evidence</p>
           <div id="resume-insights"><p class="quiet">Skills, keywords, and likely role titles will appear here after indexing.</p></div>
-          <p class="privacy-note">Your resume stays in ClearLead’s local data directory. Job descriptions never become resume claims.</p>
+          <p class="privacy-note">PDFs are extracted in memory and not saved. Review the text before indexing it locally. Job descriptions never become resume claims.</p>
         </aside>
       </div>
     </section>
@@ -171,7 +171,28 @@
         <div class="field"><label for="target-roles">Target roles</label><input id="target-roles" placeholder="Staff Engineer, ML Platform Engineer"></div>
         <div class="field"><label for="locations">Preferred locations</label><input id="locations" placeholder="Remote, Chicago"></div>
         <div class="field span-2"><label for="must-haves">Must-haves</label><input id="must-haves" placeholder="Remote, salary listed, Python"></div>
-        <div class="profile-foot"><p>Your profile and search history stay in ClearLead’s local data directory.</p><button id="save-profile" class="button ghost">Save profile</button></div>
+        <div class="application-divider span-2"><p class="eyebrow">application identity</p><h3>Information ClearLead may safely fill</h3><p>Legal, demographic, salary, sponsorship, and attestation fields always remain review-only.</p></div>
+        <div class="field"><label for="full-name">Full name</label><input id="full-name" autocomplete="name" placeholder="Your full legal name"></div>
+        <div class="field"><label for="application-email">Email</label><input id="application-email" type="email" autocomplete="email" placeholder="you@example.com"></div>
+        <div class="field"><label for="application-phone">Phone</label><input id="application-phone" autocomplete="tel" placeholder="+1 555 555 5555"></div>
+        <div class="field"><label for="application-location">Current location</label><input id="application-location" autocomplete="address-level2" placeholder="Chicago, IL"></div>
+        <div class="field"><label for="application-city">City</label><input id="application-city" autocomplete="address-level2"></div>
+        <div class="field"><label for="application-state">State / region</label><input id="application-state" autocomplete="address-level1"></div>
+        <div class="field"><label for="application-postal">Postal code</label><input id="application-postal" autocomplete="postal-code"></div>
+        <div class="field"><label for="application-country">Country</label><input id="application-country" autocomplete="country-name"></div>
+        <div class="field"><label for="linkedin-url">LinkedIn URL</label><input id="linkedin-url" type="url" placeholder="https://linkedin.com/in/..."></div>
+        <div class="field"><label for="github-url">GitHub URL</label><input id="github-url" type="url" placeholder="https://github.com/..."></div>
+        <div class="field span-2"><label for="portfolio-url">Portfolio URL</label><input id="portfolio-url" type="url" placeholder="https://your-site.dev"></div>
+        <div class="field"><label for="work-authorization">Authorized to work?</label><select id="work-authorization"><option value="unknown">Review each application</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+        <div class="field"><label for="needs-sponsorship">Need sponsorship?</label><select id="needs-sponsorship"><option value="unknown">Review each application</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+        <div class="field"><label for="desired-salary">Desired salary</label><input id="desired-salary" placeholder="Review-only, e.g. $150k-$180k"></div>
+        <div class="field"><label for="relocation">Open to relocation?</label><select id="relocation"><option value="unknown">Review each application</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+        <div class="profile-foot"><p>Your targeting, identity, and answer preferences stay in ClearLead’s local data directory.</p><button id="save-profile" class="button ghost">Save targeting &amp; identity</button></div>
+      </div>
+      <div class="panel extension-setup">
+        <div><p class="eyebrow">application copilot</p><h3>Pair the safe-fill extension</h3><p>Load the local extension once, pair it here, then prepare a verified job and fill safe fields with one click. It cannot press Submit.</p></div>
+        <div class="extension-actions"><span id="extension-status" class="readiness not-ready">Extension not paired.</span><button id="pair-extension" class="button primary">Create pairing token</button></div>
+        <div id="pairing-output" class="pairing-output" aria-live="polite"></div>
       </div>
     </section>
 
@@ -182,6 +203,7 @@
       </div>
       <div id="leads" class="queue-list"></div>
       <div id="tailor-output" class="tailor-output" aria-live="polite"></div>
+      <div id="autofill-output" class="tailor-output" aria-live="polite"></div>
     </section>
   </main>
 

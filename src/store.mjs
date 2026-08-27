@@ -3,6 +3,7 @@ import path from "node:path";
 import { normalizeProfile } from "./profile.mjs";
 import { normalizeSearchConfig } from "./search.mjs";
 import { normalizeResume } from "./resume.mjs";
+import { normalizeApplicationProfile } from "./application-profile.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
@@ -12,6 +13,8 @@ export function createStore(dataDir) {
   const resumePath = path.join(dataDir, "resume.json");
   const tailoredPath = path.join(dataDir, "tailored");
   const kitsPath = path.join(dataDir, "kits");
+  const applicationProfilePath = path.join(dataDir, "application-profile.json");
+  const extensionPairingPath = path.join(dataDir, "extension-pairing.json");
 
   function read(file, fallback) {
     try {
@@ -51,6 +54,14 @@ export function createStore(dataDir) {
     },
     profile: () => normalizeProfile(read(profilePath, {})),
     saveProfile: (profile) => write(profilePath, normalizeProfile(profile)),
+    applicationProfile: () => normalizeApplicationProfile(read(applicationProfilePath, {})),
+    saveApplicationProfile(profile) {
+      const normalized = normalizeApplicationProfile(profile);
+      write(applicationProfilePath, normalized);
+      return normalized;
+    },
+    extensionPairing: () => read(extensionPairingPath, null),
+    saveExtensionPairing(pairing) { write(extensionPairingPath, pairing); return pairing; },
     searchConfig: () => normalizeSearchConfig(read(searchConfigPath, {})),
     saveSearchConfig(config) {
       const normalized = normalizeSearchConfig(config);

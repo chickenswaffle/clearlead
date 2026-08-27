@@ -6,5 +6,8 @@
   "scripts": {
     "start": "node src/server.mjs",
     "test": "node --test test/**/*.test.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.2.108"
   }
 }
