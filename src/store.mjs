@@ -140,7 +140,8 @@ export function createStore(dataDir) {
     saveLiveLead(lead) {
       if (lead.status !== "live") throw new Error("Only live leads can be saved.");
       if (!isHttpUrl(lead.finalUrl || lead.url)) throw new Error("A verified http(s) source URL is required.");
-      if (!lead.checkedAt || !lead.reason) throw new Error("Verification evidence is required.");
+      if (!lead.checkedAt || !lead.reason || !Number.isInteger(lead.httpStatus)) throw new Error("Verification evidence including the HTTP result is required.");
+      if (!lead.source) throw new Error("The discovery source is required.");
       const leads = read(leadsPath, []);
       if (leads.some((item) => item.finalUrl === lead.finalUrl)) return { saved: false, reason: "This live URL is already saved." };
       const saved = { id: crypto.randomUUID(), savedAt: new Date().toISOString(), ...lead };

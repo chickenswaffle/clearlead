@@ -32,6 +32,17 @@ test("corrupt state is reported and never silently overwritten", (context) => {
   assert.equal(fs.readFileSync(statePath, "utf8"), "{broken json\n");
 });
 
+test("saved live leads require complete verification and discovery evidence", (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-lead-evidence-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const store = createStore(dataDir);
+  const base = { status: "live", url: "https://jobs.example/role", finalUrl: "https://jobs.example/role", checkedAt: "2026-08-31T16:00:00.000Z", reason: "Apply action and job details found." };
+  assert.throws(() => store.saveLiveLead({ ...base, source: "pasted" }), /HTTP result/);
+  assert.throws(() => store.saveLiveLead({ ...base, httpStatus: 200 }), /discovery source/);
+  const saved = store.saveLiveLead({ ...base, httpStatus: 200, source: "pasted" });
+  assert.equal(saved.saved, true);
+});
+
 test("atomic writes serialize across processes and leave private, valid JSON", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-lock-"));
   context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

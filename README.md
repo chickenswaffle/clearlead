@@ -7,23 +7,33 @@ It is intentionally evidence-first: discovery can call a role published, but onl
 ## Run
 
 ```bash
-npm test
 npm start
 ```
 
-Open `http://localhost:4173`.
+Open `http://localhost:4173`. The core paste → verify → save workflow starts without an account, resume, model key, or third-party setup.
+
+For PDF resume upload and the complete test suite, install the locked dependency and check readiness:
+
+```bash
+npm ci
+npm run doctor
+npm test
+```
+
+The readiness check names each missing prerequisite and prints its exact repair command. Optional dependency problems never masquerade as a failed verification.
 
 ## Current workflow
 
-1. Paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
-2. Search Greenhouse, Lever, and Ashby company boards plus the broad Remotive and Arbeitnow feeds. Starter source tokens are validated and configurable.
-3. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/freshness breakdown.
-4. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
-5. Save only a server-verified live role to the local review queue.
-6. Create a local-only tailored Markdown resume for a verified-live role. This deterministic fallback reorders existing bullets and never calls a model.
-7. Optionally add your own OpenRouter, OpenAI API, or Anthropic API key and model ID. Saving and testing the key sends no resume data. An OpenAI API key is separate from a ChatGPT subscription.
-8. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
-9. Optional auto-refresh repeats the saved search every 2, 5, 15, or 30 minutes while the app is open. Broad feeds are cached according to their public API guidance.
+1. Paste any public job URL, review its evidence-backed `live`, `closed`, `blocked`, or `inconclusive` outcome, and explicitly save only a live result.
+2. Optionally paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
+3. Search Greenhouse, Lever, and Ashby company boards plus the broad Public Job Ledger, Remotive, and Arbeitnow feeds. Starter source tokens are validated and configurable.
+4. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/sector/freshness breakdown.
+5. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
+6. Review verification evidence and click **Save verified lead** before a role enters the local queue.
+7. Create a local-only tailored Markdown resume for a verified-live role. This deterministic fallback reorders existing bullets and never calls a model.
+8. Optionally add your own OpenRouter, OpenAI API, or Anthropic API key and model ID. Saving and testing the key sends no resume data. AI search is separately opt-in and sends only a compact skills/title index. An OpenAI API key is separate from a ChatGPT subscription.
+9. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
+10. **Prepare application** creates a reviewable, exact-page safe-fill pack. It never submits an application.
 
 ## Application Copilot extension
 

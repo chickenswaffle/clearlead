@@ -18,8 +18,9 @@ test("UI script selectors resolve to unique HTML ids", () => {
 });
 
 test("resume onboarding leads to one plain-English search and a simple review-resume-apply flow", () => {
+  assert.ok(html.indexOf('id="verify-panel"') < html.indexOf('id="resume"'), "paste and verify must be the first workflow");
   assert.ok(html.indexOf('id="resume"') < html.indexOf('id="search"'));
-  assert.ok(html.indexOf('id="ai-setup"') < html.indexOf('id="search"'));
+  assert.ok(html.indexOf('id="search"') < html.indexOf('id="ai-setup"'), "optional AI setup must not interrupt the resume-to-search path");
   assert.match(html, /id="tailor-output"/);
   assert.match(html, /OpenRouter/);
   assert.match(html, /application\/pdf/);
@@ -34,7 +35,9 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(script, /Read job description/);
   assert.match(html, /id="pair-extension"/);
   assert.match(html, /id="full-name"/);
-  assert.match(script, />Apply</);
+  assert.match(script, /Save verified lead/);
+  assert.match(script, /data-save=/);
+  assert.match(script, /Prepare application/);
   assert.match(html, /Verify top matches/);
   assert.match(script, /Tailoring is available for roles found through ranked search/);
 });

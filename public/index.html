@@ -16,7 +16,7 @@
   <div class="statusbar">
     <div class="shell statusbar-inner">
       <span><i class="pulse"></i>clearlead local service online</span>
-      <span class="statusbar-right"><span id="last-scan">no search run yet</span><span>data stays local</span></span>
+      <span class="statusbar-right"><span id="last-scan">no search run yet</span><span id="runtime-status">checking local readiness</span></span>
     </div>
   </div>
 
@@ -24,35 +24,35 @@
     <div class="shell brandrow">
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
+        <a href="#verify-panel">verify</a>
         <a href="#resume">resume</a>
         <a href="#search">search</a>
         <a href="#profile">settings</a>
       </nav>
-      <button class="command-button" id="search-top">run search <kbd>↵</kbd></button>
+      <button class="command-button" id="search-top">verify job <kbd>↵</kbd></button>
     </div>
   </header>
 
   <main id="top" class="shell">
     <section class="hero">
-      <p class="terminal-line"><span>visitor@clearlead:~$</span> index --resume --rank --verify</p>
-      <h1>Your resume in.<br><em>Best roles out.</em></h1>
-      <p class="hero-copy">Tell ClearLead what kind of job you want in normal words. It expands the search from your resume, finds and ranks real openings, then helps you tailor and apply.</p>
-      <div class="hero-actions">
-        <a class="button primary" href="#resume">Add your resume</a>
-        <a class="button ghost" href="#search">Find jobs</a>
+      <p class="terminal-line"><span>visitor@clearlead:~$</span> paste --verify --save</p>
+      <h1>Paste a job.<br><em>Know if it’s live.</em></h1>
+      <p class="hero-copy">Start with one job URL. ClearLead follows the source, shows the exact evidence, and lets you decide whether to save it locally. No account, resume, model key, or dashboard setup required.</p>
+      <div id="verify-panel" class="core-workflow">
+        <p class="eyebrow">01 / paste and verify</p>
+        <div class="panel verify-card hero-verify">
+          <label for="job-url">Public job posting URL</label>
+          <div class="inline-input"><input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url"><button id="verify" class="button primary">Verify live</button></div>
+          <div id="result" aria-live="polite"></div>
+        </div>
+        <p class="verification-promise">Every result includes the check time, HTTP result, final URL, and rationale. Only a verified-live result can be saved.</p>
       </div>
-
-      <div class="stats" aria-label="ClearLead status">
-        <div><strong id="stat-open">0</strong><span>ranked postings</span></div>
-        <div><strong id="stat-new">0</strong><span>new this scan</span></div>
-        <div><strong id="stat-verified">0</strong><span>verified live</span></div>
-        <div><strong id="stat-queue">0</strong><span>verified queue</span></div>
-      </div>
+      <div id="runtime-readiness" class="runtime-readiness" aria-live="polite"></div>
     </section>
 
     <section id="resume" class="section-block resume-onboarding">
       <div class="section-heading">
-        <div><p class="eyebrow">01 / local resume index</p><h2>Start with the truth</h2></div>
+        <div><p class="eyebrow">02 / local resume index</p><h2>Search from your actual experience</h2></div>
         <p id="resume-status" class="readiness not-ready">Resume required before search.</p>
       </div>
       <div class="resume-grid">
@@ -75,34 +75,17 @@
       </div>
     </section>
 
-    <section id="ai-setup" class="section-block">
-      <div class="section-heading">
-        <div><p class="eyebrow">02 / bring your own model</p><h2>One tool, your provider</h2></div>
-        <p id="ai-status" class="readiness not-ready">Optional — local tailoring works without a key.</p>
-      </div>
-      <div class="ai-grid">
-        <div class="panel provider-card">
-          <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/provider</span></div>
-          <div class="provider-form">
-            <div class="field"><label for="ai-provider">Provider</label><select id="ai-provider"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option><option value="anthropic">Anthropic API</option></select></div>
-            <div class="field"><label for="ai-model">Model ID</label><input id="ai-model" autocomplete="off" placeholder="Provider model ID"></div>
-            <div class="field span-2"><label for="ai-key">API key</label><input id="ai-key" type="password" autocomplete="new-password" placeholder="Stored encrypted on this machine"><small id="ai-key-hint">The browser never receives a saved key.</small></div>
-            <div class="provider-actions span-2"><button id="save-provider" class="button primary">Save provider</button><button id="test-provider" class="button ghost">Test key</button><button id="remove-provider" class="button ghost danger">Remove key</button></div>
-            <div id="ai-result" class="provider-result span-2" aria-live="polite"></div>
-          </div>
-        </div>
-        <aside class="panel provider-explainer">
-          <p class="eyebrow">privacy boundary</p><h3>Local until you say go.</h3>
-          <ol><li>Your key is encrypted in ClearLead’s private local data folder.</li><li>Job search sends only a compact skills/role index—not your full resume—to expand search terms.</li><li>Clicking <strong>Make custom resume</strong> asks before sending your resume and one verified job to your provider.</li><li>ClearLead audits source-line provenance and rejects unsupported numbers locally.</li></ol>
-          <p class="privacy-note">An OpenAI API key is separate from a ChatGPT subscription. Codex and Claude can also work with the exported markdown kit; ClearLead never submits an application.</p>
-        </aside>
-      </div>
-    </section>
-
     <section id="search" class="section-block">
       <div class="section-heading">
         <div><p class="eyebrow">03 / tell us once</p><h2>What job do you want?</h2></div>
         <div class="refresh-state"><i></i><span id="next-refresh">auto-refresh ready</span></div>
+      </div>
+
+      <div class="stats" aria-label="Current search status">
+        <div><strong id="stat-open">0</strong><span>ranked postings</span></div>
+        <div><strong id="stat-new">0</strong><span>new this scan</span></div>
+        <div><strong id="stat-verified">0</strong><span>verified live</span></div>
+        <div><strong id="stat-queue">0</strong><span>saved leads</span></div>
       </div>
 
       <div class="search-console panel">
@@ -140,22 +123,9 @@
       <div id="search-results" class="job-grid" aria-live="polite"></div>
     </section>
 
-    <section id="verify-panel" class="section-block two-column">
-      <div>
-        <p class="eyebrow">04 / evidence gate</p>
-        <h2>Verify before you trust it</h2>
-        <p class="section-copy">A company feed is a discovery signal. ClearLead follows the source, checks the final destination, and requires both an apply action and job-detail evidence before calling it live.</p>
-      </div>
-      <div class="panel verify-card">
-        <label for="job-url">Job posting URL</label>
-        <div class="inline-input"><input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url"><button id="verify" class="button primary">Verify live</button></div>
-        <div id="result" aria-live="polite"></div>
-      </div>
-    </section>
-
     <section id="profile" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">05 / targeting</p><h2>Fine-tune what fits</h2></div>
+        <div><p class="eyebrow">04 / targeting</p><h2>Fine-tune what fits</h2></div>
         <p id="readiness" class="readiness"></p>
       </div>
       <div class="panel profile-grid">
@@ -187,9 +157,33 @@
       </div>
     </section>
 
+    <section id="ai-setup" class="section-block">
+      <div class="section-heading">
+        <div><p class="eyebrow">optional / bring your own model</p><h2>One tool, your provider</h2></div>
+        <p id="ai-status" class="readiness not-ready">Optional — local tailoring works without a key.</p>
+      </div>
+      <div class="ai-grid">
+        <div class="panel provider-card">
+          <div class="terminal-chrome"><i></i><i></i><i></i><span>clearlead/provider</span></div>
+          <div class="provider-form">
+            <div class="field"><label for="ai-provider">Provider</label><select id="ai-provider"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option><option value="anthropic">Anthropic API</option></select></div>
+            <div class="field"><label for="ai-model">Model ID</label><input id="ai-model" autocomplete="off" placeholder="Provider model ID"></div>
+            <div class="field span-2"><label for="ai-key">API key</label><input id="ai-key" type="password" autocomplete="new-password" placeholder="Stored encrypted on this machine"><small id="ai-key-hint">The browser never receives a saved key.</small></div>
+            <div class="provider-actions span-2"><button id="save-provider" class="button primary">Save provider</button><button id="test-provider" class="button ghost">Test key</button><button id="remove-provider" class="button ghost danger">Remove key</button></div>
+            <div id="ai-result" class="provider-result span-2" aria-live="polite"></div>
+          </div>
+        </div>
+        <aside class="panel provider-explainer">
+          <p class="eyebrow">privacy boundary</p><h3>Local until you say go.</h3>
+          <ol><li>Your key is encrypted in ClearLead’s private local data folder.</li><li>Job search sends only a compact skills/role index—not your full resume—to expand search terms.</li><li>Clicking <strong>Make custom resume</strong> asks before sending your resume and one verified job to your provider.</li><li>ClearLead audits source-line provenance and rejects unsupported numbers locally.</li></ol>
+          <p class="privacy-note">An OpenAI API key is separate from a ChatGPT subscription. Codex and Claude can also work with the exported markdown kit; ClearLead never submits an application.</p>
+        </aside>
+      </div>
+    </section>
+
     <section id="queue" class="section-block">
       <div class="section-heading">
-        <div><p class="eyebrow">06 / review &amp; build</p><h2>Verified roles worth reviewing</h2></div>
+        <div><p class="eyebrow">05 / saved locally</p><h2>Verified roles worth reviewing</h2></div>
         <span class="verification-rule">server-verified only</span>
       </div>
       <div id="leads" class="queue-list"></div>
@@ -198,7 +192,7 @@
     </section>
   </main>
 
-  <footer><div class="shell"><span>&gt; clearlead_</span><span>find → verify → review</span><span>built local-first</span></div></footer>
+  <footer><div class="shell"><span>&gt; clearlead_</span><span>paste → verify → save</span><span>built local-first</span></div></footer>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@ import { buildApplicationKit } from "./ai-resume.mjs";
 import { extractResumePdf } from "./pdf-resume.mjs";
 import { applicationProfileReadiness } from "./application-profile.mjs";
 import { createSearchPlan } from "./search-plan.mjs";
+import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -34,6 +35,7 @@ export function createAppServer({
   const liveVerifications = new Map();
   const discoveredJobs = new Map();
   const aiConsents = new Map();
+  const runtime = runtimeReadiness({ rootDir: root });
   let currentAutofillPack = null;
 
   async function executeSearch(requested, plan = null) {
@@ -113,7 +115,7 @@ export function createAppServer({
         return sendDownload(res, item.file, item.filename, item.type);
       }
       if (req.method === "GET" && url.pathname === "/api/ai") {
-        return json(res, 200, { ...vault.status(), privacy: "Your key stays server-side. Resume data is sent only when you explicitly build an AI application kit." });
+        return json(res, 200, { ...vault.status(), privacy: "Your key stays server-side. AI search is opt-in and sends only a compact skills/title index. Your full resume is sent only when you explicitly build an AI application kit." });
       }
       if (req.method === "GET" && url.pathname === "/api/leads") {
         const profile = store.profile();
@@ -130,6 +132,7 @@ export function createAppServer({
           applicationReadiness: applicationProfileReadiness(applicationProfile),
           extensionPaired: activePairing(store.extensionPairing()),
           autofillPack: currentAutofillPack ? publicAutofillPack(currentAutofillPack) : null,
+          runtime,
         });
       }
       if (req.method === "GET" && url.pathname === "/api/application-profile") {
@@ -147,7 +150,7 @@ export function createAppServer({
           title: shortText(discovered.title, 180),
           company: shortText(discovered.company, 100),
           location: shortText(discovered.location, 160),
-          source: shortText(discovered.source, 40),
+          source: shortText(discovered.source, 40) || "pasted",
           board: shortText(discovered.board, 80),
           postedAt: isoDate(discovered.postedAt),
           firstSeenAt: isoDate(discovered.firstSeenAt),
@@ -365,8 +368,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const dataDir = process.env.CLEARLEAD_DATA_DIR
     ? path.resolve(process.env.CLEARLEAD_DATA_DIR)
     : path.join(root, "data");
-  const server = createAppServer({ dataDir });
-  server.listen(port, "127.0.0.1", () => console.log(`ClearLead listening on http://localhost:${server.address().port}`));
+  const runtime = runtimeReadiness({ rootDir: root });
+  if (!runtime.coreReady) {
+    console.error(formatReadiness(runtime));
+    process.exitCode = 1;
+  } else {
+    if (!runtime.ready) console.warn(formatReadiness(runtime));
+    const server = createAppServer({ dataDir });
+    server.listen(port, "127.0.0.1", () => console.log(`ClearLead listening on http://localhost:${server.address().port}`));
+  }
 }
 
 function strings(value) { return Array.isArray(value) ? value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean) : []; }

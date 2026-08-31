@@ -71,6 +71,7 @@ test("smart support search retains related titles before ranking and excludes un
     { title: "End User Computing Technician", location: "Irving", url: "https://jobs.example/euc", description: "Desktop and device support" },
     { title: "Technology Support Associate", location: "Arlington", url: "https://jobs.example/associate", description: "Help employees with technical issues" },
     { title: "Staff Accountant", location: "Dallas", url: "https://jobs.example/accounting", description: "Prepare financial statements" },
+    { title: "Patient Service Specialist", location: "Dallas", url: "https://jobs.example/patient-service", description: "Front desk scheduling and patient registration" },
   ];
   const plan = { titles: ["IT Support Specialist", "Help Desk Technician", "Desktop Support Technician"], locations: ["Dallas", "Irving", "Arlington"], sectors: [], seniority: "entry", remote: false };
   const result = await searchPublishedRoles({ boards: ["example"], query: plan.titles.join(", "), location: plan.locations.join(", "), plan }, {

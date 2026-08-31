@@ -22,8 +22,8 @@ document.querySelector('#save-resume').addEventListener('click', saveResume);
 document.querySelector('#resume-file').addEventListener('change', loadResumeFile);
 document.querySelector('#search-jobs').addEventListener('click', () => searchJobs());
 document.querySelector('#search-top').addEventListener('click', () => {
-  document.querySelector(resumeReady ? '#search' : '#resume').scrollIntoView({behavior: 'smooth'});
-  if (resumeReady) document.querySelector('#smart-search').focus();
+  document.querySelector('#verify-panel').scrollIntoView({behavior: 'smooth'});
+  document.querySelector('#job-url').focus();
 });
 document.querySelector('#smart-search').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') searchJobs();
@@ -283,7 +283,7 @@ function jobCard(job) {
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
   const actions = status === 'live'
-    ? `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button>`
+    ? `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button><button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
       : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
@@ -339,9 +339,9 @@ function renderResult(check) {
   result.innerHTML = `<div class="status">${escape(check.status || 'invalid request')}</div><strong>${escape(check.reason || check.error)}</strong><p class="why">${check.checkedAt ? `checked ${new Date(check.checkedAt).toLocaleString()}` : ''}${check.httpStatus ? ` · HTTP ${check.httpStatus}` : ''}${check.signals?.length ? `<br>signals: ${escape(check.signals.join(' + '))}` : ''}${check.finalUrl || check.url ? `<br>${escape(check.finalUrl || check.url)}` : ''}</p>`;
   if (check.status === 'live') {
     const tailorAction = check.title
-      ? `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button>`
+      ? `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
       : '<span class="quiet">Tailoring is available for roles found through ranked search.</span>';
-    result.insertAdjacentHTML('beforeend', `<div class="result-actions">${tailorAction}</div>`);
+    result.insertAdjacentHTML('beforeend', `<p class="quiet">Review the evidence above, then explicitly decide whether this lead belongs in your local queue.</p><div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button>${tailorAction}</div>`);
     wireJobActions(result);
   } else if (check.status === 'blocked' || check.status === 'inconclusive') {
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Nothing was saved. Choose what happens next.</p>${actionMarkup(check.finalUrl || check.url)}`);
@@ -445,7 +445,7 @@ function updateJobCard(check) {
     card.classList.add('verified');
     const actions = card.querySelector('.job-actions');
     if (actions && check.verificationId) {
-      actions.innerHTML = `<button class="button primary" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Apply</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
+      actions.innerHTML = `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button><button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
       wireJobActions(actions);
     }
   } else if (check.status === 'closed') {
@@ -498,6 +498,7 @@ async function loadState({autoSearch = true} = {}) {
   try {
     const data = await requestJson('/api/leads');
     appState = data;
+    showRuntimeReadiness(data.runtime);
     showResume(data.resume);
     showProfile(data.profile, data.readiness);
     showApplicationProfile(data.applicationProfile, data.applicationReadiness);
@@ -515,6 +516,20 @@ async function loadState({autoSearch = true} = {}) {
     leads.innerHTML = `<div class="empty-state"><strong>${escape(error.message)}</strong><p><button class="button ghost" id="retry-queue">Retry loading ClearLead</button></p></div>`;
     document.querySelector('#retry-queue').addEventListener('click', () => loadState());
   }
+}
+
+function showRuntimeReadiness(runtime = {}) {
+  const status = document.querySelector('#runtime-status');
+  const output = document.querySelector('#runtime-readiness');
+  if (runtime.ready) {
+    status.textContent = 'runtime ready · data stays local';
+    output.className = 'runtime-readiness';
+    output.innerHTML = '';
+    return;
+  }
+  status.textContent = runtime.coreReady ? 'core ready · optional setup needed' : 'runtime blocked';
+  output.className = 'runtime-readiness active';
+  output.innerHTML = (runtime.issues || []).map((issue) => `<div><strong>${escape(issue.feature)}:</strong> ${escape(issue.message)}<br>Repair: <code>${escape(issue.repair)}</code></div>`).join('');
 }
 
 function readSearchConfig() {

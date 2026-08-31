@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0 || >=24"
+  },
   "scripts": {
     "start": "node src/server.mjs",
+    "doctor": "node src/doctor.mjs",
     "test": "node --test test/**/*.test.mjs"
   },
   "dependencies": {

@@ -134,7 +134,7 @@ function smartTitleMatches(title, plannedTitles) {
     const text = String(title).toLowerCase();
     const domain = /\b(it|information technology|technology|technical|tech|help desk|service desk|desktop|computer|network|systems?|end user|user support|computing)\b/i.test(text);
     const role = /\b(support|technician|specialist|analyst|associate|representative|administrator|admin|engineer)\b/i.test(text);
-    if (domain && role) return true;
+    return domain && role;
   }
   const generic = new Set(["senior", "junior", "entry", "staff", "lead", "manager", "engineer", "developer", "analyst", "specialist", "technician", "associate"]);
   const distinctiveOverlap = [...plannedWords].filter((word) => !generic.has(word) && titleWords.has(word)).length;

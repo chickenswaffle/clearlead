@@ -152,7 +152,7 @@ Staff platform engineer with ten years building distributed systems and reliable
     board: "forged-board",
     firstSeenAt: "2026-01-01T00:00:00Z",
   });
-  assert.equal(manualCheck.source, "");
+  assert.equal(manualCheck.source, "pasted");
   assert.equal(manualCheck.board, "");
   assert.equal(manualCheck.title, "");
   assert.equal(manualCheck.company, "");
