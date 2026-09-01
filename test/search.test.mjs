@@ -6,6 +6,7 @@ test("search config validates, deduplicates, and caps company boards", () => {
   const config = normalizeSearchConfig({
     boards: ["Figma", "figma", "bad board", ...Array.from({ length: 20 }, (_, index) => `board-${index}`)],
     query: "  platform engineer  ",
+    smartPrompt: "  platform jobs near me  ",
     refreshMinutes: 2,
   });
   assert.equal(config.boards[0], "figma");
@@ -13,6 +14,7 @@ test("search config validates, deduplicates, and caps company boards", () => {
   assert.equal(config.boards.length, 20);
   assert.deepEqual(config.greenhouseBoards, config.boards);
   assert.equal(config.query, "platform engineer");
+  assert.equal(config.smartPrompt, "platform jobs near me");
   assert.equal(config.refreshMinutes, 2);
   const expanded = Array.from({ length: 14 }, (_, index) => `technical support role ${index}`).join(", ");
   assert.equal(normalizeSearchConfig({ query: expanded }).query, expanded);
@@ -72,6 +74,10 @@ test("smart support search retains related titles before ranking and excludes un
     { title: "Technology Support Associate", location: "Arlington", url: "https://jobs.example/associate", description: "Help employees with technical issues" },
     { title: "Staff Accountant", location: "Dallas", url: "https://jobs.example/accounting", description: "Prepare financial statements" },
     { title: "Patient Service Specialist", location: "Dallas", url: "https://jobs.example/patient-service", description: "Front desk scheduling and patient registration" },
+    { title: "Machine Learning Systems Engineer", location: "Dallas", url: "https://jobs.example/ml-systems", description: "Build model platforms" },
+    { title: "Partner Technology Solutions Engineer", location: "Dallas", url: "https://jobs.example/solutions", description: "Build partner integrations" },
+    { title: "Senior IT Support Specialist", location: "Dallas", url: "https://jobs.example/senior-support", description: "Lead support operations" },
+    { title: "IT Support Specialist", location: "Austin", url: "https://jobs.example/austin-support", description: "Troubleshoot Windows users" },
   ];
   const plan = { titles: ["IT Support Specialist", "Help Desk Technician", "Desktop Support Technician"], locations: ["Dallas", "Irving", "Arlington"], sectors: [], seniority: "entry", remote: false };
   const result = await searchPublishedRoles({ boards: ["example"], query: plan.titles.join(", "), location: plan.locations.join(", "), plan }, {

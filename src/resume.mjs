@@ -1,7 +1,8 @@
 const STOP_WORDS = new Set([
-  "about", "after", "also", "and", "are", "been", "being", "but", "can", "company", "for", "from",
-  "have", "into", "its", "more", "our", "over", "role", "that", "the", "their", "them", "they", "this",
-  "through", "using", "was", "were", "will", "with", "work", "worked", "working", "years", "your",
+  "about", "across", "after", "all", "also", "and", "any", "are", "as", "at", "be", "been", "being", "but", "by", "can", "company", "each",
+  "experience", "for", "from", "had", "has", "have", "how", "if", "in", "including", "into", "is", "it", "its", "may", "more", "not", "of", "on", "or", "our", "over", "per",
+  "role", "such", "than", "that", "the", "their", "them", "then", "they", "this", "through", "to", "up", "using", "was", "we", "were", "who", "will", "with", "within",
+  "work", "worked", "working", "years", "you", "your",
 ]);
 
 const SKILLS = [

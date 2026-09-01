@@ -14,6 +14,7 @@ export function normalizeSearchConfig(input = {}) {
     leverSites: tokens(input.leverSites, DEFAULT_SOURCE_CONFIG.leverSites, 12),
     ashbyBoards: tokens(input.ashbyBoards, DEFAULT_SOURCE_CONFIG.ashbyBoards, 12),
     broadFeeds: allowedFeeds(input.broadFeeds),
+    smartPrompt: String(input.smartPrompt || "").trim().slice(0, 500),
     query: String(input.query || "").trim().slice(0, 800),
     location: String(input.location || "").trim().slice(0, 800),
     autoRefresh: input.autoRefresh !== false,
@@ -78,13 +79,13 @@ export async function searchPublishedRoles(input, {
       const titleTerms = new Set(words(job.title));
       if (queryGroups.length > 0) {
         const titleMatches = input.plan
-          ? smartTitleMatches(job.title, input.plan.titles || [])
+          ? smartTitleMatches(job.title, input.plan)
           : queryGroups.some((group) => group.every((term) => titleTerms.has(term)));
         if (!titleMatches) continue;
       }
       const locationText = new Set(words(job.location));
       const remoteAllowed = input.plan?.remote && /\bremote\b/i.test(String(job.location) + " " + String(job.workplaceType));
-      if (!input.plan && locationGroups.length > 0 && !remoteAllowed && !locationGroups.some((group) => group.every((term) => locationText.has(term)))) continue;
+      if (locationGroups.length > 0 && !remoteAllowed && !locationGroups.some((group) => group.every((term) => locationText.has(term)))) continue;
       const normalized = {
         ...job,
         company: job.company || source.name,
@@ -126,15 +127,18 @@ function allowedFeeds(value) {
   return [...new Set(supplied.map((item) => String(item).trim().toLowerCase()).filter((item) => ["jobledger", "remotive", "arbeitnow"].includes(item)))];
 }
 function words(value) { return String(value).toLowerCase().match(/[a-z0-9+#.]{2,}/g) || []; }
-function smartTitleMatches(title, plannedTitles) {
+function smartTitleMatches(title, plan) {
+  const plannedTitles = plan.titles || [];
   const titleWords = new Set(words(title));
   const plannedWords = new Set(plannedTitles.flatMap(words));
   const supportPlan = [...plannedWords].some((word) => ["support", "help", "desk", "desktop", "computer"].includes(word));
   if (supportPlan) {
     const text = String(title).toLowerCase();
-    const domain = /\b(it|information technology|technology|technical|tech|help desk|service desk|desktop|computer|network|systems?|end user|user support|computing)\b/i.test(text);
-    const role = /\b(support|technician|specialist|analyst|associate|representative|administrator|admin|engineer)\b/i.test(text);
-    return domain && role;
+    if (plan.seniority === "entry" && /\b(?:senior|sr\.?|staff|principal|lead|manager|director|head|chief|vp)\b/i.test(text)) return false;
+    const supportPhrase = /\b(?:help\s*desk|service\s*desk|desktop support|(?:technical|tech|technology|it|information technology|computer|network|systems?|user|end user|field|application)(?: customer| product| client)? support)\b/i.test(text);
+    const supportRole = /\bsupport\s+(?:technician|specialist|analyst|associate|representative|administrator|admin|engineer|consultant)\b/i.test(text);
+    const endpointRole = /\b(?:it|information technology|desktop|computer|end user computing|euc)\s+(?:support\s+)?(?:technician|specialist|analyst|associate|administrator|admin|engineer)\b/i.test(text);
+    return supportPhrase || supportRole || endpointRole;
   }
   const generic = new Set(["senior", "junior", "entry", "staff", "lead", "manager", "engineer", "developer", "analyst", "specialist", "technician", "associate"]);
   const distinctiveOverlap = [...plannedWords].filter((word) => !generic.has(word) && titleWords.has(word)).length;

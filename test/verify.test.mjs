@@ -40,7 +40,40 @@ test("treats a network failure as actionable inconclusive", async () => {
 test("does not call generic careers copy live without combined evidence", async () => {
   const result = await verifyPosting("https://jobs.example.test/careers", options(fake(200, "<h1>Careers</h1><p>Apply to join us.</p>")));
   assert.equal(result.status, "inconclusive");
-  assert.deepEqual(result.signals, ["apply action"]);
+  assert.deepEqual(result.signals, []);
+});
+
+test("requires an interactive application control instead of the verb apply in job prose", async () => {
+  const result = await verifyPosting("https://jobs.example.test/security", options(fake(200, "<h1>Security Engineer</h1><h2>Responsibilities</h2><p>Apply security patches and document remediation.</p>")));
+  assert.equal(result.status, "inconclusive");
+  assert.equal(result.signals.includes("apply action"), false);
+});
+
+test("disabled, hidden, and unusable apply controls cannot establish liveness", async () => {
+  for (const control of [
+    '<button disabled>Apply now</button>',
+    '<button aria-disabled="true">Apply now</button>',
+    '<button hidden>Apply now</button>',
+    '<button style="display:none">Apply now</button>',
+    '<button class="hidden">Apply now</button>',
+    '<a href="#">Apply now</a>',
+  ]) {
+    const result = await verifyPosting("https://jobs.example.test/unavailable-control", options(fake(200, `<h2>Responsibilities</h2>${control}`)));
+    assert.equal(result.status, "inconclusive", control);
+    assert.equal(result.signals.includes("apply action"), false, control);
+  }
+});
+
+test("does not call legitimate job prose a bot challenge", async () => {
+  const html = "<h1>Security Support Engineer</h1><h2>Responsibilities</h2><p>Troubleshoot access denied errors and explain CAPTCHA integrations.</p><a href='/apply'>Apply now</a>";
+  const result = await verifyPosting("https://jobs.example.test/security-support", options(fake(200, html)));
+  assert.equal(result.status, "live");
+});
+
+test("treats an HTTP access restriction as blocked even without challenge copy", async () => {
+  const result = await verifyPosting("https://jobs.example.test/restricted", options(fake(403, "<h1>Forbidden</h1>")));
+  assert.equal(result.status, "blocked");
+  assert.match(result.reason, /HTTP 403|access/i);
 });
 
 test("does not treat ordinary 404 or Cloudflare job text as status evidence", async () => {

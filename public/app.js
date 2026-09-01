@@ -14,9 +14,13 @@ let resumeReady = false;
 let refreshTimer = null;
 let countdownTimer = null;
 let searching = false;
+let verifying = false;
 let aiState = {configured: false, provider: '', model: ''};
 
 document.querySelector('#verify').addEventListener('click', () => runVerification());
+document.querySelector('#job-url').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') runVerification();
+});
 document.querySelector('#save-profile').addEventListener('click', saveProfile);
 document.querySelector('#save-resume').addEventListener('click', saveResume);
 document.querySelector('#resume-file').addEventListener('change', loadResumeFile);
@@ -283,22 +287,35 @@ function jobCard(job) {
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
   const actions = status === 'live'
-    ? `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button><button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
+    ? `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
       : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
   const skills = job.match?.matchedSkills?.length ? job.match.matchedSkills.join(', ') : job.match?.matchedKeywords?.slice(0, 5).join(', ');
   const breakdown = job.match?.breakdown;
+  const sourceUrl = safeHttpUrl(job.url) ? job.url : '#verify-panel';
+  const verificationEvidence = check ? verificationEvidenceMarkup({...check, source: check.source || job.source}, {allowSave: status === 'live'}) : '';
   return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
     <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
     <h3>${escape(job.title)}</h3>
     <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
     <div class="score-row"><strong>${score}</strong><span>resume match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · sector ${breakdown.sector ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
-    <div class="match-copy">${skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found'}${check?.reason ? `<br>${escape(check.reason)}` : ''}</div>
+    <div class="match-copy">${skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found'}</div>
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
-    <div class="job-actions">${actions}<a class="text-link" href="${escape(job.url)}" target="_blank" rel="noreferrer">open source ↗</a></div>
+    ${verificationEvidence}
+    <div class="job-actions">${actions}<a class="text-link" href="${escape(sourceUrl)}" ${sourceUrl === '#verify-panel' ? '' : 'target="_blank" rel="noreferrer"'}>open source ↗</a></div>
   </article>`;
+}
+
+function verificationEvidenceMarkup(check, {allowSave = false, queue = false, open = false} = {}) {
+  const checked = check.checkedAt && Number.isFinite(Date.parse(check.checkedAt)) ? new Date(check.checkedAt).toLocaleString() : 'timestamp unavailable';
+  const status = Number.isInteger(check.httpStatus) ? `HTTP ${check.httpStatus}` : 'HTTP status unavailable';
+  const finalUrl = safeHttpUrl(check.finalUrl || check.url) ? check.finalUrl || check.url : '';
+  const source = check.source ? escape(check.source) : 'pasted source';
+  const signals = Array.isArray(check.signals) && check.signals.length ? escape(check.signals.join(' + ')) : 'none recorded';
+  const save = allowSave && check.verificationId ? `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button>` : '';
+  return `<details class="verification-evidence${queue ? ' lead-evidence' : ''}"${open ? ' open' : ''}><summary>Review verification evidence</summary><div class="verification-evidence-body"><p><strong>${escape(check.status || 'inconclusive')}</strong> · ${escape(checked)} · ${escape(status)}<br>source: ${source}<br>signals: ${signals}</p><p>${escape(check.reason || 'No verification rationale was recorded.')}</p>${finalUrl ? `<a class="text-link evidence-url" href="${escape(finalUrl)}" target="_blank" rel="noreferrer">${escape(finalUrl)} ↗</a>` : '<p class="quiet">No safe final URL was recorded.</p>'}${save}</div></details>`;
 }
 
 function metadata(job) {
@@ -318,6 +335,9 @@ function wireJobActions(container) {
 }
 
 async function runVerification(discoveredUrl, metadata = {}) {
+  if (verifying) return;
+  verifying = true;
+  setVerificationBusy(true);
   const urlInput = document.querySelector('#job-url');
   if (discoveredUrl) urlInput.value = discoveredUrl;
   const url = urlInput.value.trim();
@@ -330,13 +350,23 @@ async function runVerification(discoveredUrl, metadata = {}) {
     renderResult(current);
   } catch (error) {
     renderRequestFailure(error.message, url);
+  } finally {
+    verifying = false;
+    setVerificationBusy(false);
   }
+}
+
+function setVerificationBusy(busy) {
+  const primary = document.querySelector('#verify');
+  primary.disabled = busy;
+  primary.textContent = busy ? 'Checking source…' : 'Verify live';
+  document.querySelectorAll('[data-verify-url]').forEach((button) => { button.disabled = busy; });
 }
 
 function renderResult(check) {
   updateJobCard(check);
   result.className = `result ${check.status || 'inconclusive'}`;
-  result.innerHTML = `<div class="status">${escape(check.status || 'invalid request')}</div><strong>${escape(check.reason || check.error)}</strong><p class="why">${check.checkedAt ? `checked ${new Date(check.checkedAt).toLocaleString()}` : ''}${check.httpStatus ? ` · HTTP ${check.httpStatus}` : ''}${check.signals?.length ? `<br>signals: ${escape(check.signals.join(' + '))}` : ''}${check.finalUrl || check.url ? `<br>${escape(check.finalUrl || check.url)}` : ''}</p>`;
+  result.innerHTML = verificationEvidenceMarkup(check, {open: true});
   if (check.status === 'live') {
     const tailorAction = check.title
       ? `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
@@ -359,7 +389,9 @@ async function queueLead(verificationId, button) {
   } catch (error) {
     button.disabled = false;
     button.textContent = /verifier again/i.test(error.message) ? 'Verify again' : 'Retry save';
-    result.insertAdjacentHTML('beforeend', `<p class="quiet">${escape(error.message)}</p>`);
+    const container = button.closest('.job-card, .result') || result;
+    container.querySelector('.save-error')?.remove();
+    container.insertAdjacentHTML('beforeend', `<p class="quiet save-error">${escape(error.message)}</p>`);
   }
 }
 
@@ -439,19 +471,21 @@ function updateJobCard(check) {
   if (!card || !check.status) return;
   const badge = card.querySelector('.verification-badge');
   const verifyButton = card.querySelector('[data-verify-url]');
+  const actions = card.querySelector('.job-actions');
+  card.querySelector('.verification-evidence')?.remove();
+  actions?.insertAdjacentHTML('beforebegin', verificationEvidenceMarkup(check, {allowSave: check.status === 'live'}));
   badge.className = `badge verification-badge ${check.status}`;
   if (check.status === 'live') {
     badge.textContent = 'verified live';
     card.classList.add('verified');
-    const actions = card.querySelector('.job-actions');
     if (actions && check.verificationId) {
-      actions.innerHTML = `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button><button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
-      wireJobActions(actions);
+      actions.innerHTML = `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button><a class="text-link" href="${escape(check.finalUrl || check.url)}" target="_blank" rel="noreferrer">open source ↗</a>`;
+      wireJobActions(card);
     }
   } else if (check.status === 'closed') {
     badge.textContent = 'verified closed';
     card.classList.add('closed');
-    if (verifyButton) { verifyButton.disabled = true; verifyButton.textContent = 'Closed'; }
+    if (verifyButton) { verifyButton.removeAttribute('data-verify-url'); verifyButton.disabled = true; verifyButton.textContent = 'Closed'; }
   } else badge.textContent = check.status === 'blocked' ? 'verification blocked' : 'not confirmed';
 }
 
@@ -475,6 +509,7 @@ function showProfile(profile, state) {
 }
 
 function showSearchConfig(config) {
+  if (config.smartPrompt) document.querySelector('#smart-search').value = config.smartPrompt;
   document.querySelector('#role-query').value = config.query;
   document.querySelector('#search-location').value = config.location;
   document.querySelector('#greenhouse-boards').value = (config.greenhouseBoards || config.boards || []).join(', ');
@@ -490,8 +525,14 @@ function showSearchConfig(config) {
 function renderQueue(queue) {
   document.querySelector('#stat-queue').textContent = queue.length;
   leads.innerHTML = queue.length
-    ? queue.map((lead) => `<article class="lead"><i class="lead-status"></i><div><a href="${escape(lead.finalUrl)}" target="_blank" rel="noreferrer">${escape(lead.title || lead.finalUrl)}</a><p class="why">${lead.company ? `${escape(lead.company)} · ` : ''}${escape(lead.reason)}</p></div><time>${relativeTime(lead.savedAt)}</time></article>`).join('')
+    ? queue.map((lead) => {
+      const target = safeHttpUrl(lead.finalUrl || lead.url) ? lead.finalUrl || lead.url : '';
+      const link = target ? `<a href="${escape(target)}" target="_blank" rel="noreferrer">${escape(lead.title || target)}</a>` : `<a href="#verify-panel">${escape(lead.title || 'Saved lead')}</a>`;
+      const reverify = target ? `<button class="button ghost" data-verify-url="${escape(target)}">Reverify source</button>` : '<span class="quiet">No safe source URL is available; discard this legacy entry from local data if it is no longer useful.</span>';
+      return `<article class="lead"><i class="lead-status"></i><div>${link}<p class="why">${lead.company ? `${escape(lead.company)} · ` : ''}${escape(lead.reason)}</p>${verificationEvidenceMarkup(lead, {queue: true})}<div class="lead-actions">${reverify}</div></div><time>${relativeTime(lead.savedAt)}</time></article>`;
+    }).join('')
     : '<div class="empty-state"><strong>Your queue is clear.</strong><p>Search a role, verify it live, then add it here for review.</p></div>';
+  wireJobActions(leads);
 }
 
 async function loadState({autoSearch = true} = {}) {
@@ -509,7 +550,7 @@ async function loadState({autoSearch = true} = {}) {
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
     const hasPreviousSearch = Boolean(data.searchStatus.lastRunAt);
     if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch && document.querySelector('#smart-search').value.trim()) searchJobs({silent: true});
-    else scheduleRefresh(data.searchConfig, {startTimer: resumeReady && hasPreviousSearch});
+    else scheduleRefresh(data.searchConfig, {startTimer: resumeReady && hasPreviousSearch && Boolean(document.querySelector('#smart-search').value.trim())});
     try { showAI(await requestJson('/api/ai')); }
     catch (error) { showAI({configured: false}); showAIMessage(`${error.message} The core search is still available. Use Remove key to reset the optional vault.`, 'error'); }
   } catch (error) {
@@ -536,6 +577,7 @@ function readSearchConfig() {
   return {
     greenhouseBoards: list('#greenhouse-boards'), leverSites: list('#lever-sites'), ashbyBoards: list('#ashby-boards'), broadFeeds: list('#broad-feeds'),
     query: document.querySelector('#role-query').value.trim(), location: document.querySelector('#search-location').value.trim(),
+    smartPrompt: document.querySelector('#smart-search').value.trim(),
     autoRefresh: document.querySelector('#auto-refresh').checked, refreshMinutes: Number(document.querySelector('#refresh-minutes').value),
     autoVerify: document.querySelector('#auto-verify').checked, verifyLimit: Number(document.querySelector('#verify-limit').value),
   };

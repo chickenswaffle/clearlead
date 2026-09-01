@@ -20,6 +20,7 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.match(content, /does not exactly match the verified application page/);
   assert.match(content, /emergency\.\?contact/);
   assert.match(content, /Object\.getOwnPropertyDescriptor/);
+  assert.doesNotMatch(content, /dispatchEvent/);
 });
 
 test("extension only fetches the paired localhost pack", () => {
@@ -51,7 +52,7 @@ test("runtime safe-fill changes only fields and never activates a submission pat
     getBoundingClientRect() { return { width: 200, height: 32 }; },
     getAttribute(name) { return name === "name" ? this.name : ""; },
     closest() { return null; },
-    dispatchEvent(event) { calls.fieldEvents.push(event.type); return true; },
+    dispatchEvent(event) { calls.fieldEvents.push(event.type); calls.submit += 1; return true; },
   };
   const context = {
     chrome: { runtime: { onMessage: { addListener() {} } } },
@@ -67,6 +68,6 @@ test("runtime safe-fill changes only fields and never activates a submission pat
   const report = context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" } });
   assert.equal(report.filled, 1);
   assert.equal(field.value, "taylor@example.com");
-  assert.deepEqual(calls.fieldEvents, ["input", "change", "blur"]);
+  assert.deepEqual(calls.fieldEvents, []);
   assert.deepEqual({ submit: calls.submit, requestSubmit: calls.requestSubmit, click: calls.click, fetch: calls.fetch, submitEvent: calls.submitEvent }, { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0 });
 });

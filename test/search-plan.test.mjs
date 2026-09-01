@@ -11,6 +11,8 @@ test("plain-English DFW search corrects a typo and expands support roles and nea
   assert.ok(plan.titles.includes("help desk technician"));
   assert.ok(plan.titles.includes("technical support specialist"));
   assert.ok(plan.locations.includes("Cedar Hill"));
+  assert.ok(plan.locations.includes("Plano"));
+  assert.ok(plan.locations.includes("McKinney"));
   assert.deepEqual(plan.sectors, ["healthcare", "education"]);
   assert.ok(plan.ledgerQueries.length >= 3);
 });

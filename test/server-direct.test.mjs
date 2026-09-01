@@ -15,6 +15,10 @@ test("application copilot pairs by hash and serves only verified-job-bound packs
     discoverFn: async (board) => ({ source: "greenhouse", board, error: null, jobs: [{ source: "greenhouse", board, company: "Acme", title: "Platform Engineer", location: "Remote", url: "https://boards.greenhouse.io/acme/apply?job=1", applyUrl: "http://attacker.example/collect", description: "Python Kubernetes platform engineering" }] }),
   });
   const resume = "# Taylor Example\n\nPlatform engineer with extensive experience building reliable cloud services and production systems.\n\n- Built Python services on Kubernetes for product teams.\n- Improved deployment reliability and observability.";
+  const home = await direct(server, "GET", "/", null);
+  assert.equal(home.headers["x-content-type-options"], "nosniff");
+  assert.equal(home.headers["x-frame-options"], "DENY");
+  assert.match(home.headers["content-security-policy"], /frame-ancestors 'none'/);
   await direct(server, "POST", "/api/resume", { text: resume, filename: "resume.md" });
   const search = await direct(server, "POST", "/api/search", { boards: ["acme"], query: "platform", autoVerify: true, verifyLimit: 5 });
   const verificationId = search.body.jobs[0].verification.verificationId;
@@ -76,6 +80,9 @@ test("smart search expands one prompt, passes the plan to broad sources, and ret
   assert.equal(search.body.jobs[0].company, "Dallas School");
   assert.match(search.body.jobs[0].description, /students, teachers/);
   assert.ok(search.body.config.broadFeeds.includes("jobledger"));
+  assert.equal(search.body.config.smartPrompt, "entry level tech jobs in DFW schools");
+  const reloaded = await direct(server, "GET", "/api/leads", null);
+  assert.equal(reloaded.body.searchConfig.smartPrompt, "entry level tech jobs in DFW schools");
 });
 
 test("a corrupt optional provider vault falls back to local smart search", async (context) => {
@@ -109,6 +116,20 @@ test("a distinct HTTPS apply URL is verified and becomes the exact autofill page
   const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId: search.body.jobs[0].verification.verificationId });
   assert.equal(prepared.body.job.applicationUrl, "https://apply.example.com/form/step-one?job=7");
   assert.deepEqual(prepared.body.allowedPages, ["https://apply.example.com/form/step-one?job=7"]);
+});
+
+test("the direct verifier cannot issue a save capability for incomplete live evidence", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-incomplete-direct-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({
+    dataDir,
+    verifyFn: async (url) => ({ status: "live", url, finalUrl: url, reason: "Missing a check timestamp and HTTP status." }),
+  });
+  const result = await direct(server, "POST", "/api/verify", { url: "https://jobs.example.com/role" });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.status, "inconclusive");
+  assert.equal(result.body.verificationId, undefined);
+  assert.match(result.body.reason, /without complete HTTP/i);
 });
 
 function direct(server, method, url, payload, extraHeaders = {}) {

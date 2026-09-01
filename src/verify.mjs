@@ -4,8 +4,8 @@ import http from "node:http";
 import https from "node:https";
 
 const CLOSED_RE = /\b(position|role|job|posting)\s+(is\s+)?(closed|expired|filled|no longer available)|\bno longer accepting applications\b/i;
-const BLOCKED_RE = /\bverify you are human\b|\bchecking your browser\b|\bcaptcha\b|\baccess denied\b/i;
-const APPLY_RE = /\bapply( now| for this job)?\b/i;
+const BLOCKED_CHALLENGE_RE = /\bverify you are human\b|\bchecking your browser\b|\bcomplete (?:the )?captcha\b|\bcaptcha verification\b|\bg-recaptcha\b|\bhcaptcha\b|\bcf-turnstile\b|\bchallenge-platform\b/i;
+const APPLY_LABEL_RE = /\b(?:apply(?: now| for this job)?|submit application)\b/i;
 const DETAIL_SIGNALS = [
   ["job description", /\bjob description\b/i],
   ["responsibilities", /\bresponsibilities\b/i],
@@ -55,7 +55,7 @@ export async function verifyPosting(url, {
     const html = await response.text();
     const evidence = compactText(html);
     const finalUrl = current.toString();
-    if (BLOCKED_RE.test(evidence)) {
+    if (response.status === 401 || response.status === 403 || BLOCKED_CHALLENGE_RE.test(html) || BLOCKED_CHALLENGE_RE.test(evidence)) {
       return outcome("blocked", {
         url: originalUrl, finalUrl, httpStatus: response.status,
         reason: "The source presented a bot challenge or access block; open it in your browser to continue.",
@@ -78,7 +78,8 @@ export async function verifyPosting(url, {
     }
 
     const details = DETAIL_SIGNALS.filter(([, pattern]) => pattern.test(html) || pattern.test(evidence)).map(([name]) => name);
-    if (APPLY_RE.test(evidence) && details.length > 0) {
+    const applyAction = hasApplyAction(html);
+    if (applyAction && details.length > 0) {
       return outcome("live", {
         url: originalUrl, finalUrl, httpStatus: response.status,
         reason: `Live evidence: apply action + ${details.join(", ")}.`,
@@ -88,7 +89,7 @@ export async function verifyPosting(url, {
     return outcome("inconclusive", {
       url: originalUrl, finalUrl, httpStatus: response.status,
       reason: "Page loaded, but it did not contain both an apply action and job-detail evidence.",
-      checkedAt: now().toISOString(), signals: [...(APPLY_RE.test(evidence) ? ["apply action"] : []), ...details],
+      checkedAt: now().toISOString(), signals: [...(applyAction ? ["apply action"] : []), ...details],
     });
   } catch (error) {
     return outcome("inconclusive", {
@@ -226,6 +227,29 @@ function isHttp(url) {
 
 function compactText(html) {
   return html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+}
+
+function hasApplyAction(html) {
+  const interactive = String(html || "").match(/<(?:a|button)\b[^>]*>[\s\S]*?<\/(?:a|button)>/gi) || [];
+  if (interactive.some((element) => usableControl(element) && (APPLY_LABEL_RE.test(compactText(element)) || APPLY_LABEL_RE.test(attributeLabel(element))))) return true;
+  const inputs = String(html || "").match(/<input\b[^>]*>/gi) || [];
+  return inputs.some((element) => usableControl(element) && APPLY_LABEL_RE.test(attributeLabel(element)));
+}
+
+function usableControl(element) {
+  const opening = String(element).match(/^<[^>]+>/)?.[0] || "";
+  if (/\s(?:disabled|hidden)(?:\s|=|>)/i.test(opening) || /\baria-(?:disabled|hidden)\s*=\s*(["'])?true\1/i.test(opening) || /\bstyle\s*=\s*(["'])[^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"']*\1/i.test(opening)) return false;
+  const classes = opening.match(/\bclass\s*=\s*(["'])(.*?)\1/i)?.[2]?.split(/\s+/) || [];
+  if (classes.some((value) => /^(?:hidden|invisible|d-none|sr-only|visually-hidden)$/i.test(value))) return false;
+  if (/^<a\b/i.test(opening)) {
+    const href = opening.match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]?.trim();
+    if (!href || /^(?:#$|javascript:|data:)/i.test(href)) return false;
+  }
+  return !/^<input\b[^>]*\btype\s*=\s*(["'])?hidden\1/i.test(opening);
+}
+
+function attributeLabel(element) {
+  return [...String(element).matchAll(/\b(?:aria-label|title|value)\s*=\s*(["'])(.*?)\1/gi)].map((match) => match[2]).join(" ");
 }
 
 function outcome(status, fields) {

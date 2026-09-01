@@ -77,6 +77,7 @@ export function createAppServer({
   }
 
   return http.createServer(async (req, res) => {
+    setSecurityHeaders(res);
     const url = new URL(req.url, "http://127.0.0.1");
     const extensionSessionApi = url.pathname === "/api/extension/session";
     const extensionPackApi = url.pathname === "/api/extension/pack";
@@ -142,7 +143,7 @@ export function createAppServer({
       if (req.method === "POST" && url.pathname === "/api/verify") {
         const request = await body(req);
         const jobUrl = request.url;
-        const verification = await verifyFn(jobUrl || "");
+        const verification = normalizeVerification(await verifyFn(jobUrl || ""), jobUrl || "");
         if (verification.status !== "live") return json(res, 200, verification);
         const discovered = discoveredJobs.get(jobUrl) || {};
         const verifiedLead = {
@@ -349,6 +350,7 @@ export function createAppServer({
           ...previous,
           ...plan.searchConfig,
           ...advanced,
+          smartPrompt: prompt,
           broadFeeds: ["jobledger", ...strings(advanced.broadFeeds || previous.broadFeeds)].filter((value, index, values) => values.indexOf(value) === index),
           autoVerify: request.autoVerify !== false,
           verifyLimit: Number(request.verifyLimit || previous.verifyLimit || 8),
@@ -481,7 +483,7 @@ export async function autoVerify(jobs, limit, verifyFn, verifications, discovere
       const job = selected[cursor++];
       let verification;
       try {
-        verification = await verifyFn(applicationTarget(job));
+        verification = normalizeVerification(await verifyFn(applicationTarget(job)), applicationTarget(job));
       } catch {
         verification = { status: "inconclusive", url: job.url, checkedAt: new Date().toISOString(), reason: "Verifier failed unexpectedly. Retry, open the source, or discard it.", signals: [] };
       }
@@ -511,9 +513,33 @@ function applicationTarget(job) {
   try { return new URL(job.applyUrl).protocol === "https:" ? job.applyUrl : job.url; }
   catch { return job.url; }
 }
-function verificationPriority(job) {
-  return ({ live: 0, unverified: 1, inconclusive: 2, blocked: 3, closed: 4 })[job.verificationStatus || "unverified"] ?? 2;
+export function verificationPriority(job) {
+  return ({ live: 0, unverified: 1, inconclusive: 1, blocked: 1, closed: 2 })[job.verificationStatus || "unverified"] ?? 1;
 }
+function normalizeVerification(value, requestedUrl) {
+  const verification = value && typeof value === "object" ? { ...value } : {};
+  const statuses = new Set(["live", "closed", "blocked", "inconclusive"]);
+  if (!statuses.has(verification.status)) {
+    return { status: "inconclusive", url: requestedUrl, checkedAt: new Date().toISOString(), reason: "Verifier returned an invalid outcome. Retry, open the source, or discard it.", signals: [] };
+  }
+  if (verification.status === "live" && !completeLiveEvidence(verification)) {
+    return {
+      ...verification,
+      status: "inconclusive",
+      url: verification.url || requestedUrl,
+      checkedAt: validDate(verification.checkedAt) ? verification.checkedAt : new Date().toISOString(),
+      reason: "The verifier reported this role as live without complete HTTP, timestamp, final URL, and rationale evidence. Retry, open the source, or discard it.",
+      signals: Array.isArray(verification.signals) ? verification.signals : [],
+    };
+  }
+  return verification;
+}
+function completeLiveEvidence(verification) {
+  return Number.isInteger(verification.httpStatus) && verification.httpStatus >= 200 && verification.httpStatus < 300 &&
+    safeHttpUrl(verification.finalUrl) && validDate(verification.checkedAt) && shortText(verification.reason, 2).length >= 2;
+}
+function safeHttpUrl(value) { try { return /^https?:$/.test(new URL(value).protocol); } catch { return false; } }
+function validDate(value) { return Number.isFinite(Date.parse(value || "")); }
 function combinedReadiness(profile, resume) {
   const targeting = profileReadiness(profile);
   const missing = [...(!resume.ready ? ["resume"] : []), ...targeting.missing];
@@ -526,7 +552,14 @@ function combinedReadiness(profile, resume) {
   };
 }
 function json(res, status, value) { res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }); res.end(JSON.stringify(value)); }
+function setSecurityHeaders(res) {
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "DENY");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+}
 function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
-function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"` }); res.end(fs.readFileSync(file)); }
+function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(fs.readFileSync(file)); }
 function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 500_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }
 function binaryBody(req, limit) { return new Promise((resolve, reject) => { const chunks = []; let size = 0; let tooLarge = false; req.on("data", (part) => { size += part.length; if (size > limit) { tooLarge = true; chunks.length = 0; } else if (!tooLarge) chunks.push(part); }); req.on("end", () => tooLarge ? reject(new Error(`Resume PDF is too large. Use a file under ${Math.floor(limit / 1024 / 1024)} MB.`)) : resolve(Buffer.concat(chunks))); req.on("error", reject); }); }

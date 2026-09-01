@@ -24,3 +24,28 @@ test("dedupe removes exact URLs and aggregator copies", () => {
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].url, "https://two/job");
 });
+
+test("URL dedupe preserves potentially case-sensitive paths", () => {
+  const jobs = dedupeJobs([
+    { company: "Resideo", title: "Technical Support Specialist", location: "Irving, TX", url: "https://jobs.example.com/Sites/CX_1/job/19191" },
+    { company: "Different employer", title: "Different role", location: "Irving", url: "https://jobs.example.com/sites/cx_1/job/19191" },
+  ]);
+  assert.equal(jobs.length, 2);
+});
+
+test("URL dedupe removes only unambiguous tracking and trailing-slash variants", () => {
+  const jobs = dedupeJobs([
+    { company: "Acme", title: "Support", location: "Dallas", url: "https://jobs.example.com/Sites/job/19191/?utm_source=feed" },
+    { company: "Different employer", title: "Different role", location: "Irving", url: "https://jobs.example.com/Sites/job/19191" },
+  ]);
+  assert.equal(jobs.length, 1);
+});
+
+test("content dedupe recognizes company suffix, spacing, and city formatting variants", () => {
+  const jobs = dedupeJobs([
+    { company: "100000 SRS Distribution Inc.", title: "Service Desk Analyst", location: "McKinney, TX", url: "https://one.example/job/1", description: "short" },
+    { company: "srsdistribution", title: "Service Desk Analyst", location: "McKinney, Texas", url: "https://two.example/jobs/99", description: "longer canonical description" },
+  ]);
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].url, "https://two.example/jobs/99");
+});

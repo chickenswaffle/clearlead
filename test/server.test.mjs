@@ -130,6 +130,8 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.match(draft.preview, /no claims or metrics were invented/i);
   const download = await fetch(`${base}${draft.downloadUrl}`);
   assert.equal(download.status, 200);
+  assert.equal(download.headers.get("cache-control"), "no-store");
+  assert.equal(download.headers.get("pragma"), "no-cache");
   assert.match(await download.text(), /Built Python and Kubernetes services/);
   const repeatedSave = await fetch(`${base}/api/leads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verificationId: check.verificationId }) });
   assert.equal(repeatedSave.status, 400);

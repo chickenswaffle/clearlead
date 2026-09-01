@@ -63,8 +63,9 @@ export function dedupeJobs(jobs) {
   const unique = new Map();
   const urls = new Set();
   for (const job of jobs) {
-    if (urls.has(job.url)) continue;
-    urls.add(job.url);
+    const urlKey = canonicalJobUrl(job.url);
+    if (urls.has(urlKey)) continue;
+    urls.add(urlKey);
     const key = identity(job);
     const current = unique.get(key);
     if (!current || quality(job) > quality(current)) unique.set(key, job);
@@ -72,10 +73,25 @@ export function dedupeJobs(jobs) {
   return [...unique.values()];
 }
 
+function canonicalJobUrl(value) {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = "";
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^utm_/i.test(key) || (parsed.hostname.toLowerCase().endsWith("smartrecruiters.com") && key.toLowerCase() === "oga")) parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}`;
+  } catch {
+    return String(value || "").trim();
+  }
+}
+
 function identity(job) {
-  const company = terms(job.company).join("-");
+  const company = terms(job.company).map((term) => term.replace(/[^a-z0-9]/g, "")).filter((term) => !/^\d+$/.test(term) && !/^(?:inc|llc|ltd|limited|corp|corporation|company|co|group|holdings)$/.test(term)).join("");
   const title = terms(job.title).filter((term) => !SENIORITY.has(term)).join("-");
-  const location = terms(job.location).slice(0, 4).join("-");
+  const location = terms(job.location)[0] || "";
   return `${company}|${title}|${location}` || job.url;
 }
 

@@ -11,7 +11,12 @@ const ROLE_FAMILIES = [
   { match: /\b(software|developer|programmer|web dev|frontend|backend)\b/i, titles: ["software developer", "software engineer", "web developer", "application support analyst", "junior developer"] },
   { match: /\b(system administrator|systems? admin|network admin|infrastructure)\b/i, titles: ["systems administrator", "network administrator", "infrastructure support specialist", "IT systems specialist"] },
 ];
-const DFW_LOCATIONS = ["Cedar Hill", "DeSoto", "Duncanville", "Lancaster", "Grand Prairie", "Mansfield", "Midlothian", "Waxahachie", "Dallas", "Arlington", "Fort Worth", "Irving"];
+const DFW_LOCATIONS = [
+  "Cedar Hill", "DeSoto", "Duncanville", "Lancaster", "Grand Prairie", "Mansfield", "Midlothian", "Waxahachie",
+  "Dallas", "Arlington", "Fort Worth", "Irving", "Richardson", "Plano", "Carrollton", "Addison", "Farmers Branch",
+  "Coppell", "Lewisville", "Grapevine", "Euless", "Bedford", "Hurst", "Mesquite", "Garland", "Rowlett", "Rockwall",
+  "Frisco", "McKinney", "Allen", "Burleson", "Dallas County", "Tarrant County", "Collin County", "Ellis County",
+];
 const SECTORS = [
   { match: /\b(hospitals?|healthcare|health care|clinics?|medical)\b/i, value: "healthcare" },
   { match: /\b(schools?|districts?|education|colleges?|universit(?:y|ies)|campus(?:es)?)\b/i, value: "education" },
