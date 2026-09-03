@@ -5,7 +5,7 @@ import https from "node:https";
 
 const CLOSED_RE = /\b(position|role|job|posting)\s+(is\s+)?(closed|expired|filled|no longer available)|\bno longer accepting applications\b/i;
 const BLOCKED_CHALLENGE_RE = /\bverify you are human\b|\bchecking your browser\b|\bcomplete (?:the )?captcha\b|\bcaptcha verification\b|\bg-recaptcha\b|\bhcaptcha\b|\bcf-turnstile\b|\bchallenge-platform\b/i;
-const APPLY_LABEL_RE = /\b(?:apply(?: now| for this job)?|submit application)\b/i;
+const APPLY_LABEL_RE = /\b(?:apply(?: now| for this job)?|submit application|i['’]?m interested|start (?:your )?application)\b/i;
 const DETAIL_SIGNALS = [
   ["job description", /\bjob description\b/i],
   ["responsibilities", /\bresponsibilities\b/i],
@@ -86,6 +86,18 @@ export async function verifyPosting(url, {
         checkedAt: now().toISOString(), signals: ["apply action", ...details],
       });
     }
+    const workday = await workdayPostingEvidence(current, { fetchFn, lookupFn, signal: controller.signal }).catch(() => null);
+    if (workday?.canApply && workday.posted) {
+      const workdayDetails = [...new Set([...details, ...(workday.hasDescription ? ["job description"] : [])])];
+      if (workdayDetails.length > 0) {
+        return outcome("live", {
+          url: originalUrl, finalUrl, httpStatus: response.status,
+          reason: `Workday public job API confirms posted=true, canApply=true, and ${workdayDetails.join(", ")}.`,
+          checkedAt: now().toISOString(), signals: ["apply action", ...workdayDetails],
+          verificationMethod: "workday public job API",
+        });
+      }
+    }
     return outcome("inconclusive", {
       url: originalUrl, finalUrl, httpStatus: response.status,
       reason: "Page loaded, but it did not contain both an apply action and job-detail evidence.",
@@ -104,6 +116,38 @@ export async function verifyPosting(url, {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function workdayPostingEvidence(url, { fetchFn, lookupFn, signal }) {
+  const apiUrl = workdayApiUrl(url);
+  if (!apiUrl) return null;
+  const response = fetchFn
+    ? await checkedInjectedFetch(apiUrl, { fetchFn, lookupFn, signal, accept: "application/json" })
+    : await fetchPinnedPublic(apiUrl, { lookupFn, signal, accept: "application/json" });
+  if (!response.ok) return null;
+  const payload = JSON.parse(await response.text());
+  const posting = payload?.jobPostingInfo;
+  if (!posting || typeof posting !== "object") return null;
+  const postingId = String(posting.jobPostingId || "").trim();
+  const requestedPath = decodeURIComponent(url.pathname).toLowerCase();
+  if (!postingId || !requestedPath.includes(postingId.toLowerCase())) return null;
+  return {
+    canApply: posting.canApply === true,
+    posted: posting.posted === true,
+    hasDescription: compactText(String(posting.jobDescription || "")).length >= 40,
+  };
+}
+
+function workdayApiUrl(url) {
+  const hostMatch = url.hostname.toLowerCase().match(/^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/);
+  if (!hostMatch) return null;
+  const parts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const jobIndex = parts.findIndex((part) => part.toLowerCase() === "job");
+  if (jobIndex < 1 || jobIndex === parts.length - 1) return null;
+  const site = parts[jobIndex - 1];
+  const jobPath = parts.slice(jobIndex + 1);
+  const encoded = ["wday", "cxs", hostMatch[1], site, "job", ...jobPath].map(encodeURIComponent).join("/");
+  return new URL(`/${encoded}`, url.origin);
 }
 
 async function assertPublicDestination(url, lookupFn) {
@@ -127,16 +171,16 @@ async function publicAddresses(url, lookupFn) {
   return addresses;
 }
 
-async function checkedInjectedFetch(url, { fetchFn, lookupFn, signal }) {
+async function checkedInjectedFetch(url, { fetchFn, lookupFn, signal, accept = "text/html,application/xhtml+xml" }) {
   await assertPublicDestination(url, lookupFn);
   return fetchFn(url, {
     redirect: "manual",
-    headers: { "user-agent": "ClearLead/0.1 (+local liveness check)" },
+    headers: { accept, "user-agent": "ClearLead/0.1 (+local liveness check)" },
     signal,
   });
 }
 
-async function fetchPinnedPublic(url, { lookupFn, signal }) {
+async function fetchPinnedPublic(url, { lookupFn, signal, accept = "text/html,application/xhtml+xml" }) {
   const [destination] = await publicAddresses(url, lookupFn);
   const transport = url.protocol === "https:" ? https : http;
   return new Promise((resolve, reject) => {
@@ -156,7 +200,7 @@ async function fetchPinnedPublic(url, { lookupFn, signal }) {
       servername: isIP(url.hostname) ? undefined : url.hostname,
       headers: {
         host: url.host,
-        accept: "text/html,application/xhtml+xml",
+        accept,
         "accept-encoding": "identity",
         "user-agent": "ClearLead/0.1 (+local liveness check)",
       },

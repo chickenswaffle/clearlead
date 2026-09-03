@@ -14,6 +14,44 @@ test("marks a role live only when a job detail signal is present", async () => {
   assert.deepEqual(result.signals, ["apply action", "job description"]);
 });
 
+test("uses Workday's public job API when its apply button is client-rendered", async () => {
+  const pageUrl = "https://motorolasolutions.wd5.myworkdayjobs.com/careers/job/Allen-TX-TX139/Technical-Support-Analyst--Hybrid-_R67087";
+  const requested = [];
+  const fetchFn = async (url, options) => {
+    requested.push({ url: String(url), accept: options.headers.accept });
+    if (String(url).includes("/wday/cxs/")) {
+      return new Response(JSON.stringify({ jobPostingInfo: {
+        jobPostingId: "Technical-Support-Analyst--Hybrid-_R67087",
+        canApply: true,
+        posted: true,
+        jobDescription: "Technical support role with networking, troubleshooting, and customer incident responsibilities.",
+      } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response('<h1>Technical Support Analyst</h1><h2>Job Description</h2><script type="application/ld+json">{"@type":"JobPosting"}</script>', { status: 200 });
+  };
+  const result = await verifyPosting(pageUrl, { fetchFn, lookupFn: publicLookup, now: clock });
+  assert.equal(result.status, "live");
+  assert.equal(result.verificationMethod, "workday public job API");
+  assert.deepEqual(result.signals, ["apply action", "job description", "job schema"]);
+  assert.match(requested[1].url, /\/wday\/cxs\/motorolasolutions\/careers\/job\/Allen-TX-TX139\/Technical-Support-Analyst--Hybrid-_R67087$/);
+  assert.equal(requested[1].accept, "application/json");
+});
+
+test("does not trust mismatched or non-applicable Workday API data", async () => {
+  const pageUrl = "https://acme.wd1.myworkdayjobs.com/jobs/job/Dallas/Support-Tech_R7";
+  for (const posting of [
+    { jobPostingId: "Different-Role_R8", canApply: true, posted: true, jobDescription: "Full job description with enough detail to otherwise qualify." },
+    { jobPostingId: "Support-Tech_R7", canApply: false, posted: true, jobDescription: "Full job description with enough detail to otherwise qualify." },
+  ]) {
+    const fetchFn = async (url) => String(url).includes("/wday/cxs/")
+      ? new Response(JSON.stringify({ jobPostingInfo: posting }), { status: 200 })
+      : new Response("<h2>Job Description</h2>", { status: 200 });
+    const result = await verifyPosting(pageUrl, { fetchFn, lookupFn: publicLookup, now: clock });
+    assert.equal(result.status, "inconclusive");
+    assert.equal(result.signals.includes("apply action"), false);
+  }
+});
+
 test("marks explicit closed evidence as closed", async () => {
   const result = await verifyPosting("https://jobs.example.test/expired", options(fake(200, "<h1>This position is closed</h1>")));
   assert.equal(result.status, "closed");
