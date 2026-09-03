@@ -42,10 +42,11 @@ ClearLead includes an unpacked Manifest V3 Chrome extension under `extension/`:
 1. Open `chrome://extensions`, enable Developer mode, and load the `extension/` folder.
 2. Save the Application Identity section in ClearLead.
 3. Create a pairing token and paste it into the extension. ClearLead stores only the token hash.
-4. Verify a ranked job and choose **Prepare autofill**.
-5. Open the prepared application and choose **Fill safe fields** in the extension.
+4. If verification is blocked, open the source, complete its challenge yourself, wait for the posting to render, and choose **Verify current job page**. The compact evidence appears automatically in ClearLead.
+5. For a verified ranked job, choose **Prepare application**.
+6. Open the prepared application and choose **Fill safe fields** in the extension.
 
-The extension fills only recognized candidate contact/location/public-link fields, never overwrites an existing answer, and only runs on the exact verified HTTPS page (including its job-specific query). Pairing expires, binds to one extension installation, and exchanges for a short-lived pack capability. Review-only fields are amber, sensitive/legal/third-party-contact fields are red and untouched, and manual file uploads are blue. The extension has no code path that clicks or invokes Submit.
+Browser-assisted verification sends only the current public URL, page title, navigation status, and detected evidence labels to the local server; it does not send page text, cookies, storage, or form contents. The extension fills only recognized candidate contact/location/public-link fields, never overwrites an existing answer, and only runs on the exact verified HTTPS page (including its job-specific query). Pairing expires, binds to one extension installation, and exchanges for a short-lived pack capability. Review-only fields are amber, sensitive/legal/third-party-contact fields are red and untouched, and manual file uploads are blue. The extension has no code path that clicks or invokes Submit.
 
 ## AI safety and local credentials
 
@@ -61,7 +62,7 @@ The interface takes visual cues from [virobit.dev](https://virobit.dev): termina
 
 - **Live** — the fetch reached a job page containing both an apply action and job-detail evidence.
 - **Closed** — the response or page contains an explicit closed/expired signal.
-- **Blocked** — the source presented an access challenge; open it yourself in a browser if you want to proceed.
+- **Blocked** — the source presented an access challenge; complete it yourself, then use the paired extension to return rendered evidence to ClearLead.
 - **Inconclusive** — the source could not be checked with confidence. You can retry, open it yourself, or discard it; it is never silently blocked.
 
 The foundation and rebuild rules live in [POSTMORTEM.md](POSTMORTEM.md).

@@ -4,6 +4,7 @@ const ready = document.querySelector("#ready");
 const result = document.querySelector("#result");
 
 document.querySelector("#save-token").addEventListener("click", saveToken);
+document.querySelector("#capture").addEventListener("click", captureCurrentPage);
 document.querySelector("#fill").addEventListener("click", fillCurrentPage);
 document.querySelector("#forget").addEventListener("click", forgetToken);
 
@@ -43,6 +44,29 @@ async function fillCurrentPage() {
     if (!report) throw new Error("Reload the application page and try again.");
     if (report.blockedPage) throw new Error(report.blockedPage);
     show(`${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. Nothing was submitted.`);
+  } catch (error) { show(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+async function captureCurrentPage() {
+  const button = document.querySelector("#capture");
+  button.disabled = true;
+  try {
+    const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
+    if (!clearleadToken) throw new Error("Pair the extension first.");
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active job page is available.");
+    const evidence = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_CAPTURE_VERIFICATION" });
+    if (!evidence || evidence.captureError) throw new Error(evidence?.captureError || "Reload the job page and try again.");
+    const response = await fetch(`${SERVER}/api/extension/verify`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${clearleadToken}`, "content-type": "application/json" },
+      body: JSON.stringify(evidence),
+    });
+    const verification = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(verification.error || `ClearLead returned HTTP ${response.status}.`);
+    const evidenceLine = `${verification.httpStatus ? `HTTP ${verification.httpStatus} · ` : ""}${(verification.signals || []).join(" + ") || "no qualifying signals"}`;
+    show(`${String(verification.status || "inconclusive").toUpperCase()} — ${verification.reason} ${evidenceLine}. Return to ClearLead; this evidence will appear there automatically.`, verification.status !== "live");
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }

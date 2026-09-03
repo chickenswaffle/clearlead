@@ -18,6 +18,7 @@ import { extractResumePdf } from "./pdf-resume.mjs";
 import { applicationProfileReadiness } from "./application-profile.mjs";
 import { createSearchPlan } from "./search-plan.mjs";
 import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
+import { browserVerificationFromEvidence } from "./browser-verification.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -37,6 +38,7 @@ export function createAppServer({
   const aiConsents = new Map();
   const runtime = runtimeReadiness({ rootDir: root });
   let currentAutofillPack = null;
+  let latestBrowserVerification = null;
 
   async function executeSearch(requested, plan = null) {
     const resume = store.resume();
@@ -81,16 +83,18 @@ export function createAppServer({
     const url = new URL(req.url, "http://127.0.0.1");
     const extensionSessionApi = url.pathname === "/api/extension/session";
     const extensionPackApi = url.pathname === "/api/extension/pack";
-    const extensionApi = extensionSessionApi || extensionPackApi;
+    const extensionVerifyApi = url.pathname === "/api/extension/verify";
+    const extensionTokenApi = extensionSessionApi || extensionVerifyApi;
+    const extensionApi = extensionTokenApi || extensionPackApi;
     const extensionRequestOrigin = extensionOrigin(req);
     if (extensionRequestOrigin) res.setHeader("access-control-allow-origin", extensionRequestOrigin);
     if (req.method === "OPTIONS" && extensionApi && extensionRequestOrigin) {
-      res.writeHead(204, { "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
+      res.writeHead(204, { "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
       return res.end();
     }
     if (extensionApi) {
       if (!extensionRequestOrigin || !isLocalHost(req)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
-      if (extensionSessionApi) {
+      if (extensionTokenApi) {
         const pairing = store.extensionPairing();
         if (!validExtensionToken(req, pairing, extensionRequestOrigin)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
         if (!pairing.extensionOrigin) store.saveExtensionPairing({ ...pairing, extensionOrigin: extensionRequestOrigin });
@@ -140,12 +144,19 @@ export function createAppServer({
         const applicationProfile = store.applicationProfile();
         return json(res, 200, { applicationProfile, readiness: applicationProfileReadiness(applicationProfile) });
       }
+      if (req.method === "GET" && url.pathname === "/api/browser-verification") {
+        if (!latestBrowserVerification || latestBrowserVerification.expiresAt <= Date.now()) {
+          latestBrowserVerification = null;
+          return json(res, 200, { verification: null });
+        }
+        return json(res, 200, { verification: latestBrowserVerification.outcome });
+      }
       if (req.method === "POST" && url.pathname === "/api/verify") {
         const request = await body(req);
         const jobUrl = request.url;
         const verification = normalizeVerification(await verifyFn(jobUrl || ""), jobUrl || "");
         if (verification.status !== "live") return json(res, 200, verification);
-        const discovered = discoveredJobs.get(jobUrl) || {};
+        const discovered = findDiscoveredJob(discoveredJobs, jobUrl);
         const verifiedLead = {
           ...verification,
           title: shortText(discovered.title, 180),
@@ -312,6 +323,18 @@ export function createAppServer({
         if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 404, { error: "No current autofill pack. Prepare one from a verified job in ClearLead." });
         const { capabilityHash: _capabilityHash, capabilityOrigin: _capabilityOrigin, ...pack } = currentAutofillPack;
         return json(res, 200, pack);
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/verify") {
+        const request = await body(req);
+        const job = findDiscoveredJob(discoveredJobs, request.pageUrl);
+        const verification = browserVerificationFromEvidence(request, { job });
+        const publicVerification = { ...verification, captureId: randomUUID() };
+        if (verification.status === "live") {
+          const verificationId = rememberVerification(liveVerifications, verification, job);
+          publicVerification.verificationId = verificationId;
+        }
+        latestBrowserVerification = { outcome: publicVerification, expiresAt: Date.now() + 30 * 60 * 1000 };
+        return json(res, 200, publicVerification);
       }
       if (req.method === "POST" && url.pathname === "/api/discover/greenhouse") {
         const { board } = await body(req);
@@ -512,6 +535,25 @@ function publicJob(job) {
 function applicationTarget(job) {
   try { return new URL(job.applyUrl).protocol === "https:" ? job.applyUrl : job.url; }
   catch { return job.url; }
+}
+function findDiscoveredJob(cache, value) {
+  const target = comparablePage(value);
+  if (!target) return {};
+  const exact = cache.get(target);
+  if (exact) return exact;
+  for (const job of new Set(cache.values())) {
+    if (comparablePage(job.url) === target || comparablePage(applicationTarget(job)) === target) return job;
+  }
+  return {};
+}
+function comparablePage(value) {
+  try {
+    const parsed = new URL(value);
+    if (!/^https?:$/.test(parsed.protocol)) return "";
+    parsed.hash = "";
+    parsed.pathname = normalizedPath(parsed.pathname);
+    return parsed.toString();
+  } catch { return ""; }
 }
 export function verificationPriority(job) {
   return ({ live: 0, unverified: 1, inconclusive: 1, blocked: 1, closed: 2 })[job.verificationStatus || "unverified"] ?? 1;

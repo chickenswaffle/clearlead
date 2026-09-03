@@ -41,6 +41,11 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(script, /checkedAt/);
   assert.match(script, /httpStatus/);
   assert.match(script, /finalUrl/);
+  assert.match(script, /verificationMethod/);
+  assert.match(script, /trustedJobMetadata !== false/);
+  assert.match(script, /\/api\/browser-verification/);
+  assert.match(html, /id="extension-setup"/);
+  assert.match(script, /CAPTCHA handoff/);
   assert.match(script, /showSearchConfig[\s\S]*smart-search/);
   assert.match(script, /let verifying = false/);
   assert.match(script, /removeAttribute\('data-verify-url'\)/);

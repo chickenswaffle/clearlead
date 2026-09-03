@@ -118,6 +118,23 @@ test("a distinct HTTPS apply URL is verified and becomes the exact autofill page
   assert.deepEqual(prepared.body.allowedPages, ["https://apply.example.com/form/step-one?job=7"]);
 });
 
+test("manual verification keeps ranked metadata across harmless URL normalization", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-ranked-manual-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({
+    dataDir,
+    verifyFn: async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Rendered role has an apply action and job details.", checkedAt: "2026-09-03T14:00:00.000Z", signals: ["apply action", "job description"] }),
+    discoverFn: async (board) => ({ source: "greenhouse", board, error: null, jobs: [{ source: "greenhouse", board, company: "Dallas School", title: "IT Support Specialist", location: "Dallas", url: "https://jobs.example.com/posting/7", description: "Windows network and user support" }] }),
+  });
+  await direct(server, "POST", "/api/resume", { text: "Experienced IT support professional troubleshooting Windows computers, networks, software, users, tickets, customer issues, documentation, systems, hardware, and service requests. Delivers reliable customer service, device setup, account maintenance, technical training, incident ownership, and clear resolution notes for busy teams.", filename: "resume.md" });
+  await direct(server, "POST", "/api/search", { boards: ["dallas-school"], query: "IT support specialist", autoVerify: false });
+  const checked = await direct(server, "POST", "/api/verify", { url: "https://jobs.example.com/posting/7/#apply" });
+  assert.equal(checked.body.status, "live");
+  assert.equal(checked.body.title, "IT Support Specialist");
+  assert.equal(checked.body.company, "Dallas School");
+  assert.equal(checked.body.source, "greenhouse");
+});
+
 test("the direct verifier cannot issue a save capability for incomplete live evidence", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-incomplete-direct-"));
   context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -130,6 +147,36 @@ test("the direct verifier cannot issue a save capability for incomplete live evi
   assert.equal(result.body.status, "inconclusive");
   assert.equal(result.body.verificationId, undefined);
   assert.match(result.body.reason, /without complete HTTP/i);
+});
+
+test("a paired extension can hand complete browser evidence back to the local app", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-browser-capture-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({ dataDir });
+  const pairing = await direct(server, "POST", "/api/extension/pair", {});
+  const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const live = await direct(server, "POST", "/api/extension/verify", {
+    pageUrl: "https://jobs.example.com/support/7#application",
+    pageTitle: "IT Support Technician",
+    httpStatus: 200,
+    signals: ["apply action", "job description"],
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(live.status, 200);
+  assert.equal(live.headers["access-control-allow-origin"], origin);
+  assert.equal(live.body.status, "live");
+  assert.equal(live.body.source, "browser-assisted");
+  assert.equal(live.body.verificationMethod, "paired browser capture");
+  assert.equal(live.body.trustedJobMetadata, false);
+  assert.equal(typeof live.body.verificationId, "string");
+  const handoff = await direct(server, "GET", "/api/browser-verification", null);
+  assert.equal(handoff.body.verification.captureId, live.body.captureId);
+  const saved = await direct(server, "POST", "/api/leads", { verificationId: live.body.verificationId });
+  assert.equal(saved.body.saved, true);
+  const blocked = await direct(server, "POST", "/api/extension/verify", {
+    pageUrl: "https://jobs.example.com/support/8", httpStatus: 200, signals: ["access challenge"],
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(blocked.body.status, "blocked");
+  assert.equal(blocked.body.verificationId, undefined);
 });
 
 function direct(server, method, url, payload, extraHeaders = {}) {

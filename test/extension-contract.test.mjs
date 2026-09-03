@@ -27,6 +27,43 @@ test("extension only fetches the paired localhost pack", () => {
   assert.match(popup, /http:\/\/127\.0\.0\.1:4173/);
   assert.match(popup, /authorization: `Bearer/);
   assert.match(manifest.host_permissions.join(" "), /127\.0\.0\.1:4173/);
+  assert.match(popup, /\/api\/extension\/verify/);
+  assert.match(content, /CLEARLEAD_CAPTURE_VERIFICATION/);
+  assert.doesNotMatch(content, /document\.cookie|localStorage|sessionStorage/);
+});
+
+test("browser capture returns compact rendered evidence without page text", () => {
+  const apply = {
+    disabled: false, tagName: "A", textContent: "Apply now", value: "",
+    getAttribute(name) { return name === "href" ? "/apply" : ""; },
+    getBoundingClientRect() { return { width: 120, height: 32 }; },
+  };
+  const schema = { textContent: '{"@type":"JobPosting"}' };
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+    location: { href: "https://jobs.example.com/roles/7#apply" },
+    URL,
+    document: {
+      title: "IT Support Technician",
+      body: { innerText: "Job description. Responsibilities. Qualifications. Private candidate text must not leave this page." },
+      querySelectorAll(selector) {
+        if (selector === "a, button, input[type='submit'], input[type='button']") return [apply];
+        if (selector === "script[type='application/ld+json']") return [schema];
+        return [];
+      },
+    },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    performance: { getEntriesByType: () => [{ responseStatus: 200 }] },
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__capture = captureVerificationEvidence;`, context);
+  const evidence = JSON.parse(JSON.stringify(context.__capture()));
+  assert.deepEqual(evidence, {
+    pageUrl: "https://jobs.example.com/roles/7",
+    pageTitle: "IT Support Technician",
+    httpStatus: 200,
+    signals: ["apply action", "job description", "responsibilities", "qualifications", "job schema"],
+  });
+  assert.doesNotMatch(JSON.stringify(evidence), /Private candidate text/);
 });
 
 test("field policy fails closed on third-party contacts and preserves meaningful selects", () => {

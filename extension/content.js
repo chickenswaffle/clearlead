@@ -2,10 +2,48 @@ const BLOCKED = /(?:equal employment|\beeo\b|demographic|disability|disabled|vet
 const REVIEW = /(?:authori[sz]ed to work|work authori[sz]ation|sponsor|visa|salary|compensation|pay expectation|relocat|notice period|start date|why (?:do|are|would)|cover letter|additional information|tell us|describe|checkbox|consent)/i;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "CLEARLEAD_FILL_SAFE_FIELDS") return;
-  try { sendResponse(fillSafeFields(message.pack)); }
-  catch (error) { sendResponse({ filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: error.message }); }
+  if (message?.type === "CLEARLEAD_FILL_SAFE_FIELDS") {
+    try { sendResponse(fillSafeFields(message.pack)); }
+    catch (error) { sendResponse({ filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: error.message }); }
+  }
+  if (message?.type === "CLEARLEAD_CAPTURE_VERIFICATION") {
+    try { sendResponse(captureVerificationEvidence()); }
+    catch (error) { sendResponse({ captureError: error.message }); }
+  }
 });
+
+function captureVerificationEvidence() {
+  const pageUrl = new URL(location.href);
+  pageUrl.hash = "";
+  const bodyText = String(document.body?.innerText || "").replace(/\s+/g, " ").slice(0, 250_000);
+  const signals = [];
+  const controls = [...document.querySelectorAll("a, button, input[type='submit'], input[type='button']")].filter(visible);
+  const applyAction = controls.some((control) => {
+    if (control.getAttribute("aria-disabled") === "true") return false;
+    if (control.tagName === "A") {
+      const href = String(control.getAttribute("href") || "").trim();
+      if (!href || /^(?:#$|javascript:|data:)/i.test(href)) return false;
+    }
+    const label = [control.textContent, control.value, control.getAttribute("aria-label"), control.getAttribute("title")].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    return /\b(?:apply(?: now| for this job)?|submit application)\b/i.test(label);
+  });
+  if (applyAction) signals.push("apply action");
+  for (const [name, pattern] of [
+    ["job description", /\bjob description\b/i], ["responsibilities", /\bresponsibilities\b/i], ["qualifications", /\bqualifications\b/i],
+  ]) if (pattern.test(bodyText)) signals.push(name);
+  const schemas = [...document.querySelectorAll("script[type='application/ld+json']")];
+  if (schemas.some((script) => /["']@type["']\s*:\s*["']JobPosting["']/i.test(script.textContent || ""))) signals.push("job schema");
+  if (/\b(position|role|job|posting)\s+(?:is\s+)?(?:closed|expired|filled|no longer available)|\bno longer accepting applications\b/i.test(bodyText)) signals.push("closed language");
+  if (/\bverify you are human\b|\bchecking your browser\b|\bcomplete (?:the )?captcha\b|\bcaptcha verification\b/i.test(bodyText)) signals.push("access challenge");
+  const navigation = globalThis.performance?.getEntriesByType?.("navigation")?.[0];
+  const httpStatus = Number(navigation?.responseStatus || 0);
+  return {
+    pageUrl: pageUrl.toString(),
+    pageTitle: String(document.title || "").trim().slice(0, 180),
+    httpStatus: Number.isInteger(httpStatus) ? httpStatus : 0,
+    signals: [...new Set(signals)],
+  };
+}
 
 function fillSafeFields(pack) {
   const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;

@@ -15,6 +15,7 @@ let refreshTimer = null;
 let countdownTimer = null;
 let searching = false;
 let verifying = false;
+let lastBrowserCaptureId = '';
 let aiState = {configured: false, provider: '', model: ''};
 
 document.querySelector('#verify').addEventListener('click', () => runVerification());
@@ -313,9 +314,10 @@ function verificationEvidenceMarkup(check, {allowSave = false, queue = false, op
   const status = Number.isInteger(check.httpStatus) ? `HTTP ${check.httpStatus}` : 'HTTP status unavailable';
   const finalUrl = safeHttpUrl(check.finalUrl || check.url) ? check.finalUrl || check.url : '';
   const source = check.source ? escape(check.source) : 'pasted source';
+  const method = check.verificationMethod ? escape(check.verificationMethod) : 'direct source check';
   const signals = Array.isArray(check.signals) && check.signals.length ? escape(check.signals.join(' + ')) : 'none recorded';
   const save = allowSave && check.verificationId ? `<button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button>` : '';
-  return `<details class="verification-evidence${queue ? ' lead-evidence' : ''}"${open ? ' open' : ''}><summary>Review verification evidence</summary><div class="verification-evidence-body"><p><strong>${escape(check.status || 'inconclusive')}</strong> · ${escape(checked)} · ${escape(status)}<br>source: ${source}<br>signals: ${signals}</p><p>${escape(check.reason || 'No verification rationale was recorded.')}</p>${finalUrl ? `<a class="text-link evidence-url" href="${escape(finalUrl)}" target="_blank" rel="noreferrer">${escape(finalUrl)} ↗</a>` : '<p class="quiet">No safe final URL was recorded.</p>'}${save}</div></details>`;
+  return `<details class="verification-evidence${queue ? ' lead-evidence' : ''}"${open ? ' open' : ''}><summary>Review verification evidence</summary><div class="verification-evidence-body"><p><strong>${escape(check.status || 'inconclusive')}</strong> · ${escape(checked)} · ${escape(status)}<br>source: ${source}<br>method: ${method}<br>signals: ${signals}</p><p>${escape(check.reason || 'No verification rationale was recorded.')}</p>${finalUrl ? `<a class="text-link evidence-url" href="${escape(finalUrl)}" target="_blank" rel="noreferrer">${escape(finalUrl)} ↗</a>` : '<p class="quiet">No safe final URL was recorded.</p>'}${save}</div></details>`;
 }
 
 function metadata(job) {
@@ -368,14 +370,16 @@ function renderResult(check) {
   result.className = `result ${check.status || 'inconclusive'}`;
   result.innerHTML = verificationEvidenceMarkup(check, {open: true});
   if (check.status === 'live') {
-    const tailorAction = check.title
+    const tailorAction = check.title && check.trustedJobMetadata !== false
       ? `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
       : '<span class="quiet">Tailoring is available for roles found through ranked search.</span>';
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Review the evidence above, then explicitly decide whether this lead belongs in your local queue.</p><div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button>${tailorAction}</div>`);
     wireJobActions(result);
   } else if (check.status === 'blocked' || check.status === 'inconclusive') {
+    if (check.status === 'blocked') result.insertAdjacentHTML('beforeend', '<div class="browser-handoff"><strong>CAPTCHA handoff</strong><p>Open the source, complete the challenge yourself, wait for the job posting to render, then click <em>Verify current job page</em> in the paired ClearLead extension.</p><button class="button ghost" id="show-extension-setup">Set up browser verification</button></div>');
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Nothing was saved. Choose what happens next.</p>${actionMarkup(check.finalUrl || check.url)}`);
     wireOutcomeActions(check.finalUrl || check.url);
+    document.querySelector('#show-extension-setup')?.addEventListener('click', () => document.querySelector('#extension-setup').scrollIntoView({behavior: 'smooth', block: 'center'}));
   }
 }
 
@@ -559,6 +563,19 @@ async function loadState({autoSearch = true} = {}) {
   }
 }
 
+async function pollBrowserVerification() {
+  try {
+    const data = await requestJson('/api/browser-verification');
+    const check = data.verification;
+    if (!check?.captureId || check.captureId === lastBrowserCaptureId) return;
+    lastBrowserCaptureId = check.captureId;
+    current = check;
+    document.querySelector('#job-url').value = check.finalUrl || check.url || '';
+    renderResult(check);
+    result.scrollIntoView({behavior: 'smooth', block: 'center'});
+  } catch {}
+}
+
 function showRuntimeReadiness(runtime = {}) {
   const status = document.querySelector('#runtime-status');
   const output = document.querySelector('#runtime-readiness');
@@ -606,4 +623,7 @@ function termChip(value) { return `<span>${escape(value)}</span>`; }
 function providerName(value) { return ({openrouter:'OpenRouter', openai:'OpenAI', anthropic:'Anthropic'})[value] || 'AI provider'; }
 function escape(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
 
-loadState();
+loadState().finally(() => {
+  pollBrowserVerification();
+  setInterval(pollBrowserVerification, 2_000);
+});
