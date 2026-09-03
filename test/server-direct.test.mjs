@@ -155,6 +155,13 @@ test("a paired extension can hand complete browser evidence back to the local ap
   const server = createAppServer({ dataDir });
   const pairing = await direct(server, "POST", "/api/extension/pair", {});
   const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const wrongTab = await direct(server, "POST", "/api/extension/verify", {
+    pageUrl: "http://127.0.0.1:4173/", httpStatus: 200, signals: ["job description", "responsibilities"],
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(wrongTab.status, 400);
+  assert.match(wrongTab.body.error, /public HTTPS job URL/i);
+  const emptyHandoff = await direct(server, "GET", "/api/browser-verification", null);
+  assert.equal(emptyHandoff.body.verification, null);
   const live = await direct(server, "POST", "/api/extension/verify", {
     pageUrl: "https://jobs.example.com/support/7#application",
     pageTitle: "IT Support Technician",

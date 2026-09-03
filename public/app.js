@@ -570,7 +570,7 @@ async function pollBrowserVerification() {
     if (!check?.captureId || check.captureId === lastBrowserCaptureId) return;
     lastBrowserCaptureId = check.captureId;
     current = check;
-    document.querySelector('#job-url').value = check.finalUrl || check.url || '';
+    if (/^https:\/\//i.test(check.finalUrl || '')) document.querySelector('#job-url').value = check.finalUrl;
     renderResult(check);
     result.scrollIntoView({behavior: 'smooth', block: 'center'});
   } catch {}

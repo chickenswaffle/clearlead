@@ -42,7 +42,7 @@ ClearLead includes an unpacked Manifest V3 Chrome extension under `extension/`:
 1. Open `chrome://extensions`, enable Developer mode, and load the `extension/` folder.
 2. Save the Application Identity section in ClearLead.
 3. Create a pairing token and paste it into the extension. ClearLead stores only the token hash.
-4. If verification is blocked, open the source, complete its challenge yourself, wait for the posting to render, and choose **Verify current job page**. The compact evidence appears automatically in ClearLead.
+4. If verification is blocked, open the source, complete its challenge yourself, wait for the posting to render, keep that HTTPS employer page active, and choose **Verify current job page**. Do not run the capture from the ClearLead tab. The compact evidence appears automatically in ClearLead.
 5. For a verified ranked job, choose **Prepare application**.
 6. Open the prepared application and choose **Fill safe fields** in the extension.
 

@@ -41,12 +41,24 @@ export function browserVerificationFromEvidence(input = {}, { job = {}, now = ()
 function safeHttpsUrl(value) {
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== "https:" || /^(?:localhost|127\.|0\.|10\.|192\.168\.|169\.254\.)/i.test(parsed.hostname)) return "";
+    if (parsed.protocol !== "https:" || privateHostname(parsed.hostname)) return "";
     parsed.hash = "";
     return parsed.toString();
   } catch {
     return "";
   }
+}
+function privateHostname(value) {
+  const host = String(value || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "::1" || host === "::") return true;
+  if (/^(?:fc|fd|fe8|fe9|fea|feb)/i.test(host)) return true;
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || parts[0] >= 224 ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
 }
 function text(value, limit) { return typeof value === "string" ? value.trim().slice(0, limit) : ""; }
 function iso(value) { const parsed = Date.parse(value || ""); return Number.isFinite(parsed) ? new Date(parsed).toISOString() : ""; }

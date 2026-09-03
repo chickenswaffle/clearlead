@@ -56,6 +56,7 @@ async function captureCurrentPage() {
     if (!clearleadToken) throw new Error("Pair the extension first.");
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error("No active job page is available.");
+    if (!/^https:\/\//i.test(String(tab.url || ""))) throw new Error("Open the HTTPS employer job page — not ClearLead — then try again.");
     const evidence = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_CAPTURE_VERIFICATION" });
     if (!evidence || evidence.captureError) throw new Error(evidence?.captureError || "Reload the job page and try again.");
     const response = await fetch(`${SERVER}/api/extension/verify`, {

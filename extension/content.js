@@ -14,6 +14,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 function captureVerificationEvidence() {
   const pageUrl = new URL(location.href);
+  if (pageUrl.protocol !== "https:" || privateHostname(pageUrl.hostname)) {
+    throw new Error("Open the public HTTPS employer job page — not ClearLead — then choose Verify current job page again.");
+  }
   pageUrl.hash = "";
   const bodyText = String(document.body?.innerText || "").replace(/\s+/g, " ").slice(0, 250_000);
   const signals = [];
@@ -43,6 +46,19 @@ function captureVerificationEvidence() {
     httpStatus: Number.isInteger(httpStatus) ? httpStatus : 0,
     signals: [...new Set(signals)],
   };
+}
+
+function privateHostname(value) {
+  const host = String(value || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "::1" || host === "::") return true;
+  if (/^(?:fc|fd|fe8|fe9|fea|feb)/i.test(host)) return true;
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || parts[0] >= 224 ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
 }
 
 function fillSafeFields(pack) {

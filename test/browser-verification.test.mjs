@@ -37,3 +37,12 @@ test("paired browser capture recognizes explicit closed evidence", () => {
   const result = browserVerificationFromEvidence({ pageUrl: "https://jobs.example.com/7", httpStatus: 200, signals: ["closed language"] }, { now });
   assert.equal(result.status, "closed");
 });
+
+test("paired browser capture rejects local and private destinations", () => {
+  for (const pageUrl of ["http://127.0.0.1:4173/", "https://localhost/job", "https://172.20.1.2/job", "https://[::1]/job"]) {
+    const result = browserVerificationFromEvidence({ pageUrl, httpStatus: 200, signals: ["apply action", "job description"] }, { now });
+    assert.equal(result.status, "inconclusive");
+    assert.equal(result.finalUrl, undefined);
+    assert.match(result.reason, /public HTTPS job URL/i);
+  }
+});

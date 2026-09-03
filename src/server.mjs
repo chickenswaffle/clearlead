@@ -328,6 +328,7 @@ export function createAppServer({
         const request = await body(req);
         const job = findDiscoveredJob(discoveredJobs, request.pageUrl);
         const verification = browserVerificationFromEvidence(request, { job });
+        if (!verification.finalUrl) return json(res, 400, { status: verification.status, error: verification.reason });
         const publicVerification = { ...verification, captureId: randomUUID() };
         if (verification.status === "live") {
           const verificationId = rememberVerification(liveVerifications, verification, job);

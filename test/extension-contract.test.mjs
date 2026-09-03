@@ -28,8 +28,22 @@ test("extension only fetches the paired localhost pack", () => {
   assert.match(popup, /authorization: `Bearer/);
   assert.match(manifest.host_permissions.join(" "), /127\.0\.0\.1:4173/);
   assert.match(popup, /\/api\/extension\/verify/);
+  assert.match(popup, /Open the HTTPS employer job page — not ClearLead/);
   assert.match(content, /CLEARLEAD_CAPTURE_VERIFICATION/);
   assert.doesNotMatch(content, /document\.cookie|localStorage|sessionStorage/);
+});
+
+test("browser capture refuses to treat the ClearLead tab as a job page", () => {
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+    location: { href: "http://127.0.0.1:4173/" },
+    URL,
+    document: { title: "ClearLead", body: { innerText: "Job description Responsibilities" }, querySelectorAll: () => [] },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    performance: { getEntriesByType: () => [{ responseStatus: 200 }] },
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__capture = captureVerificationEvidence;`, context);
+  assert.throws(() => context.__capture(), /not ClearLead/i);
 });
 
 test("browser capture returns compact rendered evidence without page text", () => {
