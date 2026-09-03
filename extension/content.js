@@ -28,7 +28,7 @@ function captureVerificationEvidence() {
       if (!href || /^(?:#$|javascript:|data:)/i.test(href)) return false;
     }
     const label = [control.textContent, control.value, control.getAttribute("aria-label"), control.getAttribute("title")].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
-    return /\b(?:apply(?: now| for this job)?|submit application)\b/i.test(label);
+    return /\b(?:apply(?: now| for this job)?|submit application|i['’]?m interested|start (?:your )?application)\b/i.test(label);
   });
   if (applyAction) signals.push("apply action");
   for (const [name, pattern] of [

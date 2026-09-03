@@ -48,7 +48,7 @@ test("browser capture refuses to treat the ClearLead tab as a job page", () => {
 
 test("browser capture returns compact rendered evidence without page text", () => {
   const apply = {
-    disabled: false, tagName: "A", textContent: "Apply now", value: "",
+    disabled: false, tagName: "A", textContent: "I'm interested", value: "",
     getAttribute(name) { return name === "href" ? "/apply" : ""; },
     getBoundingClientRect() { return { width: 120, height: 32 }; },
   };
