@@ -24,29 +24,21 @@
     <div class="shell brandrow">
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
-        <a href="#verify-panel">verify</a>
-        <a href="#resume">resume</a>
         <a href="#search">search</a>
+        <a href="#resume">resume</a>
+        <a href="#verify-panel">paste URL</a>
         <a href="#profile">settings</a>
       </nav>
-      <button class="command-button" id="search-top">verify job <kbd>↵</kbd></button>
+      <button class="command-button" id="search-top">search jobs <kbd>↵</kbd></button>
     </div>
   </header>
 
   <main id="top" class="shell">
     <section class="hero">
-      <p class="terminal-line"><span>visitor@clearlead:~$</span> paste --verify --save</p>
-      <h1>Paste a job.<br><em>Know if it’s live.</em></h1>
-      <p class="hero-copy">Start with one job URL. ClearLead follows the source, shows the exact evidence, and lets you decide whether to save it locally. No account, resume, model key, or dashboard setup required.</p>
-      <div id="verify-panel" class="core-workflow">
-        <p class="eyebrow">01 / paste and verify</p>
-        <div class="panel verify-card hero-verify">
-          <label for="job-url">Public job posting URL</label>
-          <div class="inline-input"><input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url"><button id="verify" class="button primary">Verify live</button></div>
-          <div id="result" aria-live="polite"></div>
-        </div>
-        <p class="verification-promise">Every result includes the check time, HTTP result, final URL, and rationale. Only a verified-live result can be saved.</p>
-      </div>
+      <p class="terminal-line"><span>candidate@clearlead:~$</span> search --rank --tailor --apply</p>
+      <h1>Tell us what you want.<br><em>Work the best matches.</em></h1>
+      <p class="hero-copy">ClearLead searches broad public and employer-direct sources, rejects bad-fit roles, ranks the rest against your actual resume, and guides each verified match through a tailored resume and safe application flow.</p>
+      <div class="hero-actions"><a class="button primary" href="#resume">Start with my resume</a><a class="button ghost" href="#verify-panel">I already have a job link</a></div>
       <div id="runtime-readiness" class="runtime-readiness" aria-live="polite"></div>
     </section>
 
@@ -121,6 +113,18 @@
         <div class="legend"><span><i class="new-dot"></i>new after baseline</span><span><i class="feed-dot"></i>published · not verified</span></div>
       </div>
       <div id="search-results" class="job-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="verify-panel" class="section-block core-workflow">
+      <div class="section-heading">
+        <div><p class="eyebrow">option b / already found one</p><h2>Paste a job URL</h2></div>
+      </div>
+      <div class="panel verify-card hero-verify">
+        <label for="job-url">Public job posting URL</label>
+        <div class="inline-input"><input id="job-url" type="url" placeholder="https://jobs.example.com/role" autocomplete="url"><button id="verify" class="button primary">Verify live</button></div>
+        <div id="result" aria-live="polite"></div>
+      </div>
+      <p class="verification-promise">Every result includes the check time, HTTP result, final URL, and rationale. Only a verified-live result can enter the guided application flow.</p>
     </section>
 
     <section id="profile" class="section-block">

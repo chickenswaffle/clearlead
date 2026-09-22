@@ -6,9 +6,9 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 
 ## Current progress
 
-- [ ] Search-first release: broad-market discovery is the default, with source coverage shown honestly
-- [ ] Search result intelligence: direct-apply preference, application friction, confidence, and fit reasons
-- [ ] Official ZipRecruiter search adapter with explicit rate-limit/error handling
+- [x] Search-first release: broad-market discovery is the default, with source coverage shown honestly
+- [x] Search result intelligence: direct-apply preference, application friction, confidence, and fit reasons
+- [x] Official ZipRecruiter search adapter with explicit rate-limit/error handling
 - [ ] Search-to-tailor-to-application guided path verified end to end
 - [x] Hard eligibility gate with coded rejection reasons
 - [x] Live-search rejection diagnostics

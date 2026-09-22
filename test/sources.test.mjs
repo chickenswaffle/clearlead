@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverLever, discoverAshby, discoverRemotive, discoverArbeitnow, discoverJobLedger, createSourceDiscovery } from "../src/sources.mjs";
+import { discoverLever, discoverAshby, discoverRemotive, discoverArbeitnow, discoverJobLedger, discoverZipRecruiter, createSourceDiscovery } from "../src/sources.mjs";
 
 function response(payload, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => payload };
+}
+
+function textResponse(payload, status = 200) {
+  return { ok: status >= 200 && status < 300, status, text: async () => typeof payload === "string" ? payload : JSON.stringify(payload) };
 }
 
 test("Lever fixture maps a published posting without claiming liveness", async () => {
@@ -65,4 +69,22 @@ test("public job ledger cache is isolated by the generated search plan", async (
   await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["help desk"], filters: { state: "TX" } } });
   await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["data analyst"], filters: { state: "TX" } } });
   assert.equal(calls, 2);
+});
+
+test("ZipRecruiter public MCP results are normalized without claiming direct application", async () => {
+  let request;
+  const result = await discoverZipRecruiter({ fetchFn: async (_url, options) => {
+    request = JSON.parse(options.body);
+    return textResponse({ jsonrpc: "2.0", id: 1, result: { structuredContent: { jobs: [{ title: "IT Support Technician", company_name: "Hospital One", location: { city: "Dallas", state: "TX" }, job_url: "https://www.ziprecruiter.com/jobs/abc", description: "Support users and computers", posted_at: "2026-09-21T00:00:00Z" }] } } });
+  } });
+  assert.equal(request.params.name, "search_jobs");
+  assert.deepEqual(request.params.arguments, {});
+  assert.equal(result.jobs[0].company, "Hospital One");
+  assert.equal(result.jobs[0].source, "ziprecruiter");
+});
+
+test("ZipRecruiter rate limits remain explicit and non-fatal", async () => {
+  const result = await discoverZipRecruiter({ fetchFn: async () => textResponse("Too Many Requests", 429) });
+  assert.match(result.error, /rate-limited/i);
+  assert.deepEqual(result.jobs, []);
 });

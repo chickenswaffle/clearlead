@@ -31,8 +31,8 @@ export function sourceSpecs(config) {
     ...config.ashbyBoards.map((token) => ({ type: "ashby", token, name: humanize(token) })),
     ...config.broadFeeds.map((type) => ({
       type,
-      token: type === "remotive" ? "remote" : type === "arbeitnow" ? "europe" : "employer-direct",
-      name: type === "remotive" ? "Remotive" : type === "arbeitnow" ? "Arbeitnow" : "Public Job Ledger",
+      token: type === "remotive" ? "remote" : type === "arbeitnow" ? "europe" : type === "ziprecruiter" ? "public-mcp" : "employer-direct",
+      name: type === "remotive" ? "Remotive" : type === "arbeitnow" ? "Arbeitnow" : type === "ziprecruiter" ? "ZipRecruiter" : "Employer-direct index",
     })),
   ];
 }
@@ -65,6 +65,7 @@ export async function searchPublishedRoles(input, {
       name: spec.name,
       ok: !result.error,
       cached: Boolean(result.cached),
+      note: result.note || "",
       error: result.error,
       jobs: result.jobs || [],
     };
@@ -121,6 +122,7 @@ export async function searchPublishedRoles(input, {
     rejectionReasons: rejectionSummary(rejected),
     outage,
     sources: outcomes.map(({ jobs: sourceJobs, ...source }) => ({ ...source, count: sourceJobs.length })),
+    providerAccess: providerAccess(config),
     searchedAt: now().toISOString(),
   };
 }
@@ -139,7 +141,15 @@ function tokens(value, fallback, limit) {
 }
 function allowedFeeds(value) {
   const supplied = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\n]/) : DEFAULT_SOURCE_CONFIG.broadFeeds;
-  return [...new Set(supplied.map((item) => String(item).trim().toLowerCase()).filter((item) => ["jobledger", "remotive", "arbeitnow"].includes(item)))];
+  return [...new Set(supplied.map((item) => String(item).trim().toLowerCase()).filter((item) => ["jobledger", "ziprecruiter", "remotive", "arbeitnow"].includes(item)))];
+}
+function providerAccess(config) {
+  const enabled = new Set(config.broadFeeds);
+  return [
+    { id: "ziprecruiter", name: "ZipRecruiter", status: enabled.has("ziprecruiter") ? "enabled" : "available", detail: "Official public MCP · small result pages · no sign-in" },
+    { id: "indeed", name: "Indeed", status: "partner-required", detail: "Official search access requires publisher-partner approval and an HTTPS placement" },
+    { id: "glassdoor", name: "Glassdoor", status: "partner-required", detail: "Official API access is restricted to approved integrations" },
+  ];
 }
 function words(value) { return String(value).toLowerCase().match(/[a-z0-9+#.]{2,}/g) || []; }
 function smartTitleMatches(title, plan) {

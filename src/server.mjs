@@ -508,12 +508,16 @@ export function createAppServer({
         });
         const previous = store.searchConfig();
         const advanced = request.advanced && typeof request.advanced === "object" ? request.advanced : {};
+        const customSources = Boolean(request.advanced && typeof request.advanced === "object");
         const requested = {
           ...previous,
           ...plan.searchConfig,
           ...advanced,
           smartPrompt: prompt,
-          broadFeeds: ["jobledger", ...strings(advanced.broadFeeds || previous.broadFeeds)].filter((value, index, values) => values.indexOf(value) === index),
+          greenhouseBoards: customSources ? strings(advanced.greenhouseBoards || advanced.boards) : [],
+          leverSites: customSources ? strings(advanced.leverSites) : [],
+          ashbyBoards: customSources ? strings(advanced.ashbyBoards) : [],
+          broadFeeds: ["jobledger", "ziprecruiter", ...strings(customSources ? advanced.broadFeeds : ["remotive"])].filter((value, index, values) => values.indexOf(value) === index),
           autoVerify: request.autoVerify !== false,
           verifyLimit: Number(request.verifyLimit || previous.verifyLimit || 8),
         };

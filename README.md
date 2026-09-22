@@ -24,16 +24,19 @@ The readiness check names each missing prerequisite and prints its exact repair 
 
 ## Current workflow
 
-1. Paste any public job URL, review its evidence-backed `live`, `closed`, `blocked`, or `inconclusive` outcome, and explicitly save only a live result.
-2. Optionally paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
-3. Search Greenhouse, Lever, and Ashby company boards plus the broad Public Job Ledger, Remotive, and Arbeitnow feeds. Starter source tokens are validated and configurable.
-4. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/sector/freshness breakdown.
+1. Paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
+2. Describe the work you want in one sentence. ClearLead searches the broad employer-direct index, ZipRecruiter's official public connector, and Remotive by default; optional Greenhouse, Lever, Ashby, and Arbeitnow sources remain configurable.
+3. Review source health and ranked matches. Every card distinguishes direct employer applications from job-board handoffs and shows its fit reasons and source-confidence level.
+4. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/sector/freshness/application-path breakdown.
 5. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
 6. Review verification evidence and click **Save verified lead** before a role enters the local queue.
 7. Create a local-only tailored Markdown resume for a verified-live role. This deterministic fallback reorders existing bullets and never calls a model.
 8. Optionally add your own OpenRouter, OpenAI API, or Anthropic API key and model ID. Saving and testing the key sends no resume data. AI search is separately opt-in and sends only a compact skills/title index. An OpenAI API key is separate from a ChatGPT subscription.
+
+Indeed and Glassdoor are not scraped or presented as active coverage. Their supported search integrations require partner approval, so the UI labels them partner-gated until those agreements and credentials exist. ZipRecruiter is read through its official no-sign-in MCP endpoint; that endpoint serves small result pages and can rate-limit, which ClearLead reports per source without failing the rest of a search.
 9. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
 10. **Prepare application** creates a reviewable, exact-page safe-fill pack. It never submits an application.
+11. If you already found a role elsewhere, paste its public URL as option B and enter the same verification-to-application flow.
 
 ## Application Copilot extension
 

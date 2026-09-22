@@ -27,8 +27,9 @@ document.querySelector('#save-resume').addEventListener('click', saveResume);
 document.querySelector('#resume-file').addEventListener('change', loadResumeFile);
 document.querySelector('#search-jobs').addEventListener('click', () => searchJobs());
 document.querySelector('#search-top').addEventListener('click', () => {
-  document.querySelector('#verify-panel').scrollIntoView({behavior: 'smooth'});
-  document.querySelector('#job-url').focus();
+  const target = resumeReady ? document.querySelector('#search') : document.querySelector('#resume');
+  target.scrollIntoView({behavior: 'smooth'});
+  (resumeReady ? document.querySelector('#smart-search') : document.querySelector('#resume-text')).focus();
 });
 document.querySelector('#smart-search').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') searchJobs();
@@ -269,7 +270,9 @@ function renderSearch(data) {
   searchSummary.textContent = data.outage
     ? 'Every configured source failed. No posting status was inferred.'
     : `${data.total} ranked roles · ${data.matchedCount || data.total} eligible in the deduplicated pool · ${data.rejectedCount || 0} rejected by hard requirements · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
-  sourceHealth.innerHTML = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published${source.cached ? ' · cached' : ''}` : escape(source.error)}</span>`).join('');
+  const activeSources = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published${source.cached ? ' · cached' : ''}${source.note ? ` · ${escape(source.note)}` : ''}` : escape(source.error)}</span>`).join('');
+  const gatedSources = (data.providerAccess || []).filter((provider) => provider.status === 'partner-required').map((provider) => `<span class="source-chip gate">${escape(provider.name)} · partner access needed</span>`).join('');
+  sourceHealth.innerHTML = activeSources + gatedSources;
   searchResults.innerHTML = data.outage
     ? '<div class="empty-state"><strong>All job sources are unavailable.</strong><p>Nothing was called published or live. Retry later or inspect source errors above.</p><button class="button ghost" id="retry-outage">Retry sources</button></div>'
     : data.jobs.length
@@ -294,15 +297,18 @@ function jobCard(job) {
       : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
   const skills = job.match?.matchedSkills?.length ? job.match.matchedSkills.join(', ') : job.match?.matchedKeywords?.slice(0, 5).join(', ');
   const breakdown = job.match?.breakdown;
+  const application = job.match?.application;
+  const confidence = job.match?.confidence;
+  const reasons = job.match?.reasons || [];
   const sourceUrl = safeHttpUrl(job.url) ? job.url : '#verify-panel';
   const verificationEvidence = check ? verificationEvidenceMarkup({...check, source: check.source || job.source}, {allowSave: status === 'live'}) : '';
   return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
-    <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
+    <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}${application ? `<span class="badge path-${escape(application.kind)}">${escape(application.label)}</span>` : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
     <h3>${escape(job.title)}</h3>
     <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
-    <div class="score-row"><strong>${score}</strong><span>resume match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · sector ${breakdown.sector ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
+    <div class="score-row"><strong>${score}</strong><span>strategic match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · apply ${breakdown.application ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
-    <div class="match-copy">${skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found'}</div>
+    <div class="match-copy">${reasons.length ? reasons.map((reason) => `<span>${escape(reason)}</span>`).join('') : (skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found')}${confidence ? `<small>${escape(confidence.level)} source confidence</small>` : ''}</div>
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     ${verificationEvidence}
     <div class="job-actions">${actions}<a class="text-link" href="${escape(sourceUrl)}" ${sourceUrl === '#verify-panel' ? '' : 'target="_blank" rel="noreferrer"'}>open source ↗</a></div>

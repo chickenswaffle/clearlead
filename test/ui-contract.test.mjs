@@ -18,8 +18,8 @@ test("UI script selectors resolve to unique HTML ids", () => {
 });
 
 test("resume onboarding leads to one plain-English search and a simple review-resume-apply flow", () => {
-  assert.ok(html.indexOf('id="verify-panel"') < html.indexOf('id="resume"'), "paste and verify must be the first workflow");
   assert.ok(html.indexOf('id="resume"') < html.indexOf('id="search"'));
+  assert.ok(html.indexOf('id="search"') < html.indexOf('id="verify-panel"'), "ranked search must be the primary workflow and pasted URLs the fallback");
   assert.ok(html.indexOf('id="search"') < html.indexOf('id="ai-setup"'), "optional AI setup must not interrupt the resume-to-search path");
   assert.match(html, /id="tailor-output"/);
   assert.match(html, /OpenRouter/);
