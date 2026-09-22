@@ -73,7 +73,7 @@ test("multi-page reports accept only the prepared ATS job scope and record step 
     ...pack,
     id: "run-multi",
     allowedPages: ["https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345"],
-    navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"] },
+    navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"], atsFamily: "workday", allowedHostSuffix: "myworkdayjobs.com" },
   };
   const run = createApplicationRun(multiPagePack);
   const progressed = recordApplicationRunReport(run, {
@@ -85,6 +85,10 @@ test("multi-page reports accept only the prepared ATS job scope and record step 
   assert.equal(progressed.events.at(-1).nextControlCount, 1);
   assert.throws(() => recordApplicationRunReport(progressed, {
     pageUrl: "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Other/R-99999/apply",
+    inspection: { phase: "application" },
+  }), /does not belong/);
+  assert.throws(() => recordApplicationRunReport(progressed, {
+    pageUrl: "https://evil.example/en-US/jobs/job/Role/R-12345/apply",
     inspection: { phase: "application" },
   }), /does not belong/);
 });

@@ -257,16 +257,18 @@ test("an unfinished application run can be revalidated and resumed after restart
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-resume-run-"));
   const runId = "11111111-1111-4111-8111-111111111111";
   const applicationUrl = "https://boards.greenhouse.io/acme/jobs/7";
+  const postingUrl = "https://careers.acme.example/support-engineer-7";
   const store = createStore(dataDir);
   store.saveApplicationProfile({ fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567" });
   store.startApplicationRun({
     id: runId,
-    job: { title: "Support Engineer", company: "Acme", source: "greenhouse", applicationUrl, finalUrl: applicationUrl, checkedAt: "2026-09-22T10:00:00.000Z", httpStatus: 200, reason: "Prior live evidence." },
+    job: { title: "Support Engineer", company: "Acme", source: "greenhouse", url: postingUrl, postingUrl, applicationUrl, finalUrl: applicationUrl, checkedAt: "2026-09-22T10:00:00.000Z", httpStatus: 200, reason: "Prior live evidence." },
     resume: null,
     truth: null,
     allowedPages: [applicationUrl],
   });
-  const verifyFn = async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Fresh application-page evidence.", checkedAt: "2026-09-22T11:00:00.000Z" });
+  const verifiedUrls = [];
+  const verifyFn = async (url) => { verifiedUrls.push(url); return { status: "live", url, finalUrl: url, httpStatus: 200, reason: "Fresh posting evidence.", checkedAt: "2026-09-22T11:00:00.000Z" }; };
   const server = createAppServer({ dataDir, verifyFn });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   context.after(async () => {
@@ -277,7 +279,10 @@ test("an unfinished application run can be revalidated and resumed after restart
   const resumed = await postJson(`${base}/api/application/runs/${runId}/resume`, {});
   assert.equal(resumed.id, runId);
   assert.equal(resumed.run.status, "in_progress");
-  assert.equal(resumed.job.reason, "Fresh application-page evidence.");
+  assert.deepEqual(verifiedUrls, [postingUrl]);
+  assert.equal(resumed.job.applicationUrl, applicationUrl);
+  assert.equal(resumed.job.postingUrl, postingUrl);
+  assert.equal(resumed.job.reason, "Fresh posting evidence.");
   const state = await getJson(`${base}/api/leads`);
   assert.equal(state.autofillPack.id, runId);
   assert.equal(state.applicationRuns[0].lastEvent.type, "resumed");

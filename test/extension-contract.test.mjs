@@ -103,15 +103,26 @@ test("Workday and SmartRecruiters readers identify multi-page steps without navi
   assert.deepEqual(JSON.parse(JSON.stringify(context.ClearLeadAdapters.applicationFields(workdayDocument, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply"))).map((item) => item.name), ["legalNameSection_firstName", "emailAddress"]);
 });
 
-test("multi-page scope stays on the prepared ATS job", () => {
+test("multi-page scope follows only job-bound ATS and generic form transitions", () => {
   const context = { chrome: { runtime: { onMessage: { addListener() {} } } }, URL };
   vm.runInNewContext(`${content}\n;globalThis.__allowed = allowedApplicationPage;`, context);
-  const workday = { allowedPages: ["https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345"], navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"] } };
+  const workday = { allowedPages: ["https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345"], navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"], allowedHostSuffix: "myworkdayjobs.com" } };
   assert.equal(context.__allowed(workday, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply?step=2"), true);
   assert.equal(context.__allowed(workday, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Other/R-99999/apply"), false);
   assert.equal(context.__allowed(workday, "https://evil.example/en-US/jobs/job/Role/R-12345/apply"), false);
-  const smart = { allowedPages: [], navigation: { multiPage: true, origin: "https://jobs.smartrecruiters.com", pathPrefix: "/Acme/744000123456-role", jobTokens: ["744000123456-role"] } };
+  const smart = { allowedPages: [], navigation: { multiPage: true, origin: "https://jobs.smartrecruiters.com", pathPrefix: "/Acme/744000123456-role", jobTokens: ["744000123456-role"], allowedHostSuffix: "smartrecruiters.com" } };
   assert.equal(context.__allowed(smart, "https://jobs.smartrecruiters.com/oneclick-ui/company/Acme/publication/744000123456-role?step=2"), true);
+  const greenhouse = { allowedPages: [], navigation: { multiPage: true, origin: "https://boards.greenhouse.io", pathPrefix: "/acme/jobs/123456", jobTokens: ["123456"], allowedHostSuffix: "greenhouse.io" } };
+  assert.equal(context.__allowed(greenhouse, "https://job-boards.greenhouse.io/acme/jobs/123456/application"), true);
+  assert.equal(context.__allowed(greenhouse, "https://job-boards.greenhouse.io/acme/jobs/999999/application"), false);
+  const lever = { allowedPages: [], navigation: { multiPage: true, origin: "https://jobs.lever.co", pathPrefix: "/acme/role-123456", jobTokens: ["role-123456"], allowedHostSuffix: "lever.co" } };
+  assert.equal(context.__allowed(lever, "https://jobs.lever.co/acme/role-123456/apply"), true);
+  const ashby = { allowedPages: [], navigation: { multiPage: true, origin: "https://jobs.ashbyhq.com", pathPrefix: "/acme/role-123456", jobTokens: ["role-123456"], allowedHostSuffix: "ashbyhq.com" } };
+  assert.equal(context.__allowed(ashby, "https://jobs.ashbyhq.com/acme/role-123456/application"), true);
+  const generic = { allowedPages: [], navigation: { multiPage: true, origin: "https://apply.example.com", pathPrefix: "/form/step-one", jobTokens: ["job=7"], allowedHostSuffix: "" } };
+  assert.equal(context.__allowed(generic, "https://apply.example.com/form/step-two?job=7"), true);
+  assert.equal(context.__allowed(generic, "https://apply.example.com/form/step-two?job=8"), false);
+  assert.equal(context.__allowed(generic, "https://evil.example/form/step-two?job=7"), false);
 });
 
 test("Lever and Ashby readers distinguish postings from application forms", () => {

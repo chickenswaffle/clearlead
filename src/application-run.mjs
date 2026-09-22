@@ -121,9 +121,15 @@ function sameAllowedApplication(allowedPages, navigation, pageUrl) {
 }
 
 function allowedByNavigation(scope, target) {
-  if (!scope?.multiPage || target.origin !== scope.origin) return false;
-  if (scope.pathPrefix && (target.pathname === scope.pathPrefix || target.pathname.startsWith(`${scope.pathPrefix}/`))) return true;
-  return scope.jobTokens.some((token) => `${target.pathname}${target.search}`.toLowerCase().includes(token));
+  if (!scope?.multiPage) return false;
+  const sameOrigin = target.origin === scope.origin;
+  const preparedHost = new URL(scope.origin).hostname;
+  const familyHost = scope.allowedHostSuffix && hostMatches(preparedHost, scope.allowedHostSuffix) && hostMatches(target.hostname, scope.allowedHostSuffix);
+  if (!sameOrigin && !familyHost) return false;
+  if (navigationTokenMatches(scope.jobTokens, target)) return true;
+  if (!sameOrigin || !scope.pathPrefix) return false;
+  const hasQueryToken = scope.jobTokens.some((token) => token.includes("="));
+  return !hasQueryToken && (target.pathname === scope.pathPrefix || target.pathname.startsWith(`${scope.pathPrefix}/`));
 }
 
 function sanitizeNavigation(value) {
@@ -131,12 +137,21 @@ function sanitizeNavigation(value) {
   try {
     const origin = new URL(value.origin).origin;
     if (!origin.startsWith("https://")) return null;
-    return { multiPage: true, origin, pathPrefix: normalizedPath(value.pathPrefix), jobTokens: strings(value.jobTokens, 5, 100).map((token) => token.toLowerCase()) };
+    const allowedHostSuffix = String(value.allowedHostSuffix || "").toLowerCase();
+    if (allowedHostSuffix && !["greenhouse.io", "lever.co", "ashbyhq.com", "myworkdayjobs.com", "smartrecruiters.com"].includes(allowedHostSuffix)) return null;
+    return {
+      multiPage: true,
+      origin,
+      pathPrefix: normalizedPath(value.pathPrefix),
+      jobTokens: strings(value.jobTokens, 5, 100).map((token) => token.toLowerCase()),
+      atsFamily: shortToken(value.atsFamily || "generic", 40),
+      allowedHostSuffix,
+    };
   } catch { return null; }
 }
 
 function compactJob(job = {}) {
-  const result = Object.fromEntries(["title", "company", "location", "source", "url", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
+  const result = Object.fromEntries(["title", "company", "location", "source", "url", "postingUrl", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "postingUrl", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
   result.httpStatus = count(job.httpStatus);
   return result;
 }
@@ -159,3 +174,13 @@ function shortText(value, limit) { return String(value || "").replace(/\s+/g, " 
 function normalizedPath(value) { const path = String(value || "/").replace(/\/{2,}/g, "/"); return path.length > 1 ? path.replace(/\/+$/, "") : "/"; }
 function count(value) { return Math.max(0, Math.min(10_000, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0)); }
 function strings(values, limit, length) { return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, length)).filter(Boolean))].slice(0, limit); }
+function hostMatches(hostname, suffix) { return hostname === suffix || hostname.endsWith(`.${suffix}`); }
+function navigationTokenMatches(tokens, target) {
+  const pathSegments = target.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part).toLowerCase());
+  return (tokens || []).some((token) => {
+    const normalized = String(token || "").toLowerCase();
+    if (!normalized.includes("=")) return normalized && pathSegments.includes(normalized);
+    const separator = normalized.indexOf("=");
+    return target.searchParams.get(normalized.slice(0, separator))?.toLowerCase() === normalized.slice(separator + 1);
+  });
+}

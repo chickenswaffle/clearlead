@@ -108,9 +108,22 @@ function allowedApplicationPage(pack, currentPage) {
   if (!scope?.multiPage) return false;
   try {
     const page = new URL(currentPage);
-    if (page.origin !== scope.origin) return false;
-    if (scope.pathPrefix && (page.pathname === scope.pathPrefix || page.pathname.startsWith(`${scope.pathPrefix}/`))) return true;
-    return Array.isArray(scope.jobTokens) && scope.jobTokens.some((token) => token && `${page.pathname}${page.search}`.toLowerCase().includes(String(token).toLowerCase()));
+    const prepared = new URL(scope.origin);
+    const sameOrigin = page.origin === prepared.origin;
+    const suffix = String(scope.allowedHostSuffix || "").toLowerCase();
+    const hostMatches = (hostname) => Boolean(suffix) && (hostname === suffix || hostname.endsWith(`.${suffix}`));
+    if (!sameOrigin && !(hostMatches(prepared.hostname) && hostMatches(page.hostname))) return false;
+    const tokens = Array.isArray(scope.jobTokens) ? scope.jobTokens : [];
+    const pathSegments = page.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part).toLowerCase());
+    const tokenMatch = tokens.some((token) => {
+      const normalized = String(token || "").toLowerCase();
+      if (!normalized.includes("=")) return normalized && pathSegments.includes(normalized);
+      const separator = normalized.indexOf("=");
+      return page.searchParams.get(normalized.slice(0, separator))?.toLowerCase() === normalized.slice(separator + 1);
+    });
+    if (tokenMatch) return true;
+    const hasQueryToken = tokens.some((token) => String(token).includes("="));
+    return sameOrigin && !hasQueryToken && scope.pathPrefix && (page.pathname === scope.pathPrefix || page.pathname.startsWith(`${scope.pathPrefix}/`));
   } catch { return false; }
 }
 

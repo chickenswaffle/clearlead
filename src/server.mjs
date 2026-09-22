@@ -218,7 +218,8 @@ export function createAppServer({
         if (run.status === "complete") throw new Error("That application is already complete and cannot be resumed.");
         const applicationUrl = run.job?.applicationUrl;
         if (!applicationUrl) throw new Error("This older application run has no verified application URL. Verify the role again.");
-        const verification = normalizeVerification(await verifyFn(applicationUrl), applicationUrl);
+        const postingUrl = run.job?.postingUrl || run.job?.url || applicationUrl;
+        const verification = normalizeVerification(await verifyFn(postingUrl), postingUrl);
         if (verification.status !== "live") throw new Error(`The employer page could not be revalidated: ${verification.reason || verification.status}. Verify the role again before continuing.`);
         const applicationProfile = store.applicationProfile();
         const readiness = applicationProfileReadiness(applicationProfile);
@@ -230,6 +231,7 @@ export function createAppServer({
           resumeDraft,
           candidateTruth: store.candidateTruth(),
           runId: run.id,
+          applicationUrlOverride: applicationUrl,
         });
         const resumed = store.resumeApplicationRun(run.id, currentAutofillPack);
         return json(res, 200, { ...publicAutofillPack(currentAutofillPack), run: resumed });
@@ -589,12 +591,13 @@ function validPackCapability(req, pack, origin) {
   const expectedBuffer = Buffer.from(expected, "hex");
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
-function createAutofillPack({ verified, applicationProfile, resumeDraft = null, candidateTruth = null, runId = null }) {
+function createAutofillPack({ verified, applicationProfile, resumeDraft = null, candidateTruth = null, runId = null, applicationUrlOverride = "" }) {
   const job = { ...verified.job, ...verified.lead };
-  const verifiedUrl = new URL(verified.lead.finalUrl || verified.lead.url);
+  const verifiedUrl = new URL(applicationUrlOverride || verified.lead.finalUrl || verified.lead.url);
   if (verifiedUrl.protocol !== "https:") throw new Error("Autofill requires a verified HTTPS application page.");
   verifiedUrl.hash = "";
   const applicationUrl = verifiedUrl.toString();
+  const postingUrl = safeHttpsUrl(verified.job?.postingUrl || verified.job?.url || verified.lead.url) || applicationUrl;
   const allowedPages = [`${verifiedUrl.origin}${normalizedPath(verifiedUrl.pathname)}${verifiedUrl.search}`];
   const navigation = applicationNavigationScope(verifiedUrl);
   const safeProfile = Object.fromEntries([
@@ -605,7 +608,7 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     id: runId || randomUUID(),
     preparedAt: new Date().toISOString(),
     expiresAt: Date.now() + 10 * 60 * 1000,
-    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
+    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: verified.job?.url || postingUrl, postingUrl, finalUrl: applicationUrl, applicationUrl, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
     allowedPages,
     navigation,
     resume: resumeDraft,
@@ -626,12 +629,25 @@ function publicAutofillPack(pack) {
   return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, navigation: pack.navigation, policy: pack.policy };
 }
 function applicationNavigationScope(page) {
-  if (!/(?:^|\.)(?:myworkdayjobs|smartrecruiters)\.com$/i.test(page.hostname)) return null;
   const pathname = normalizedPath(page.pathname);
-  const jobTokens = [...new Set(pathname.split("/").filter((part) => /^(?=.*\d)[a-z0-9_-]{6,}$/i.test(part)).map((part) => part.toLowerCase()).slice(-3))];
+  const ats = atsHostScope(page.hostname);
+  const pathTokens = pathname.split("/").filter((part) => /^(?=.*\d)[a-z0-9_-]{6,}$/i.test(part));
+  const queryTokens = [...page.searchParams.entries()]
+    .filter(([key, value]) => /^(?:gh_)?(?:job|jobid|jid|posting|requisition|req|id)$/i.test(key) && value)
+    .map(([key, value]) => `${key}=${value}`);
+  const jobTokens = [...new Set([...pathTokens, ...queryTokens].map((part) => part.toLowerCase()).slice(-5))];
   if (pathname === "/" && !jobTokens.length) return null;
-  return { multiPage: true, origin: page.origin, pathPrefix: pathname, jobTokens };
+  return { multiPage: true, origin: page.origin, pathPrefix: pathname, jobTokens, atsFamily: ats.family, allowedHostSuffix: ats.suffix };
 }
+function atsHostScope(hostname) {
+  const families = [
+    ["greenhouse", "greenhouse.io"], ["lever", "lever.co"], ["ashby", "ashbyhq.com"],
+    ["workday", "myworkdayjobs.com"], ["smartrecruiters", "smartrecruiters.com"],
+  ];
+  const match = families.find(([, suffix]) => hostname === suffix || hostname.endsWith(`.${suffix}`));
+  return match ? { family: match[0], suffix: match[1] } : { family: "generic", suffix: "" };
+}
+function safeHttpsUrl(value) { try { const page = new URL(value); return page.protocol === "https:" ? page.toString() : ""; } catch { return ""; } }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
 function rememberDiscovered(cache, jobs) {
   for (const job of jobs) {

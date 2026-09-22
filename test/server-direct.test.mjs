@@ -115,8 +115,16 @@ test("a distinct HTTPS apply URL is verified and becomes the exact autofill page
   assert.deepEqual(verifiedUrls, ["https://apply.example.com/start?job=7"]);
   const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId: search.body.jobs[0].verification.verificationId });
   assert.equal(prepared.body.job.applicationUrl, "https://apply.example.com/form/step-one?job=7");
+  assert.equal(prepared.body.job.postingUrl, "https://jobs.example.com/posting/7");
   assert.deepEqual(prepared.body.allowedPages, ["https://apply.example.com/form/step-one?job=7"]);
-  assert.equal(prepared.body.navigation, null);
+  assert.deepEqual(prepared.body.navigation, {
+    multiPage: true,
+    origin: "https://apply.example.com",
+    pathPrefix: "/form/step-one",
+    jobTokens: ["job=7"],
+    atsFamily: "generic",
+    allowedHostSuffix: "",
+  });
 });
 
 test("Workday packs carry a job-bound multi-page navigation scope", async (context) => {
@@ -137,6 +145,8 @@ test("Workday packs carry a job-bound multi-page navigation scope", async (conte
     origin: "https://acme.wd5.myworkdayjobs.com",
     pathPrefix: "/en-US/jobs/job/Dallas/Support-Tech_R-12345",
     jobTokens: ["support-tech_r-12345"],
+    atsFamily: "workday",
+    allowedHostSuffix: "myworkdayjobs.com",
   });
 });
 
