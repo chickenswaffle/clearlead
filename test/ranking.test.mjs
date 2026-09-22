@@ -79,3 +79,12 @@ test("expanded title lists credit the closest role instead of diluting obvious a
   assert.equal(match.application.kind, "direct");
   assert.ok(match.reasons.includes("Target title alignment"));
 });
+
+test("entry-level ranking surfaces and penalizes heavy experience requirements", () => {
+  const base = { title: "L1 IT Support", company: "Hospital", location: "Dallas", url: "https://hospital.applytojob.com/apply/123", postedAt: "2026-09-21T00:00:00Z" };
+  const options = { resume: { keywords: ["support"] }, plan: { titles: ["IT support specialist"], seniority: "entry" }, location: "Dallas", now: new Date("2026-09-22T00:00:00Z") };
+  const normal = rankJob({ ...base, description: "Support hospital users and computers." }, options);
+  const risky = rankJob({ ...base, description: "Support hospital users. Requires 5+ years of experience in desktop support." }, options);
+  assert.equal(normal.score - risky.score, 10);
+  assert.match(risky.risks[0], /5\+ years/);
+});

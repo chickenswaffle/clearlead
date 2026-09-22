@@ -45,6 +45,16 @@ test("stale roles and senior roles are hard rejections", () => {
   assert.ok(senior.reasons.some((reason) => reason.code === "seniority-mismatch"));
 });
 
+test("entry searches flag contradictory five-plus-year requirements for review", () => {
+  const result = evaluateJobEligibility({
+    title: "L1 IT Support",
+    description: "Entry level role. Bachelor's degree; 5+ years' experience in desktop support, or equivalent experience.",
+    postedAt: "2026-09-20T00:00:00Z",
+  }, { plan: { seniority: "entry" }, now: NOW });
+  assert.equal(result.eligible, true);
+  assert.ok(result.warnings.some((warning) => warning.code === "heavy-experience-requirement"));
+});
+
 test("active clearance requirements fail closed without matching evidence", () => {
   const result = evaluateJobEligibility({
     title: "Help Desk Technician",

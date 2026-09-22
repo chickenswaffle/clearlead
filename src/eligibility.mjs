@@ -24,6 +24,7 @@ const SPECIAL_PROGRAMS = [
 const SENIOR_TITLE = /\b(?:senior|sr\.?|staff|principal|lead|manager|director|head|chief|vp|vice president)\b/i;
 const ACTIVE_CLEARANCE_REQUIRED = /\b(?:(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance|(?:top\s+secret|secret|ts\s*\/\s*sci)\s+(?:security\s+)?clearance\s+(?:is\s+)?required)\b/i;
 const CLEARANCE_EVIDENCE = /\b(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance\b|\b(?:top\s+secret|ts\s*\/\s*sci)\b/i;
+const EXPERIENCE_REQUIREMENT = /\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:relevant\s+|professional\s+|prior\s+)?experience\b/gi;
 
 export function evaluateJobEligibility(job = {}, {
   resume = {},
@@ -58,6 +59,12 @@ export function evaluateJobEligibility(job = {}, {
   if (plan.seniority === "entry" && SENIOR_TITLE.test(title)) {
     reject(reasons, checks, "seniority-mismatch", "The search is entry-level, but the job title is explicitly senior or leadership level.");
   } else checks.push({ code: "seniority", passed: true });
+
+  const requestedYears = maximumExperienceRequirement(jobText);
+  if (plan.seniority === "entry" && requestedYears >= 5) {
+    warnings.push({ code: "heavy-experience-requirement", reason: `The posting asks for ${requestedYears}+ years of experience despite an entry-level search. Review whether the resume proves equivalent experience before spending time applying.` });
+    checks.push({ code: "experience-requirement", passed: null, requestedYears });
+  } else checks.push({ code: "experience-requirement", passed: true, requestedYears });
 
   for (const program of SPECIAL_PROGRAMS) {
     if (program.jobPattern.test(jobText) && !program.evidencePattern.test(candidateText)) reject(reasons, checks, program.code, program.reason);
@@ -114,3 +121,8 @@ function phrasePresent(text, phrase) {
 
 function clean(value) { return String(value || "").replace(/\s+/g, " ").trim(); }
 function unique(values) { return [...new Set(values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean))]; }
+function maximumExperienceRequirement(value) {
+  let maximum = 0;
+  for (const match of String(value || "").matchAll(EXPERIENCE_REQUIREMENT)) maximum = Math.max(maximum, Number(match[1]) || 0);
+  return maximum;
+}

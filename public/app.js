@@ -303,6 +303,7 @@ function jobCard(job) {
   const application = job.match?.application;
   const confidence = job.match?.confidence;
   const reasons = job.match?.reasons || [];
+  const risks = job.match?.risks || [];
   const sourceUrl = safeHttpUrl(job.url) ? job.url : '#verify-panel';
   const verificationEvidence = check ? verificationEvidenceMarkup({...check, source: check.source || job.source}, {allowSave: status === 'live'}) : '';
   return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
@@ -312,6 +313,7 @@ function jobCard(job) {
     <div class="score-row"><strong>${score}</strong><span>strategic match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · apply ${breakdown.application ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
     <div class="match-copy">${reasons.length ? reasons.map((reason) => `<span>${escape(reason)}</span>`).join('') : (skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found')}${confidence ? `<small>${escape(confidence.level)} source confidence</small>` : ''}</div>
+    ${risks.length ? `<div class="fit-risks"><strong>Review before applying</strong>${risks.map((risk) => `<p>${escape(risk)}</p>`).join('')}</div>` : ''}
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     ${verificationEvidence}
     ${status === 'blocked' ? '<div class="browser-handoff"><strong>Browser check needed</strong><p>Open the posting, complete any human check yourself, then choose <em>Verify current job page</em> in the paired ClearLead extension. This card will update when rendered evidence arrives.</p></div>' : ''}
