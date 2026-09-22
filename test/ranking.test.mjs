@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rankJob, dedupeJobs } from "../src/ranking.mjs";
+import { rankJob, dedupeJobs, applicationPath } from "../src/ranking.mjs";
 import { normalizeResume } from "../src/resume.mjs";
 
 const resume = normalizeResume({ text: "Senior platform engineer building Python, Kubernetes, AWS, PostgreSQL, distributed systems and observability. Led production engineering teams and reliable cloud deployments across complex products." });
@@ -12,7 +12,9 @@ test("resume ranking is explainable and deterministic", () => {
   assert.deepEqual(first, second);
   assert.ok(first.score >= 60);
   assert.ok(first.matchedSkills.includes("python"));
-  assert.deepEqual(Object.keys(first.breakdown), ["title", "resume", "location", "freshness"]);
+  assert.deepEqual(Object.keys(first.breakdown), ["title", "resume", "location", "freshness", "application"]);
+  assert.equal(first.confidence.level, "medium");
+  assert.ok(first.reasons.includes("Target title alignment"));
 });
 
 test("dedupe removes exact URLs and aggregator copies", () => {
@@ -48,4 +50,19 @@ test("content dedupe recognizes company suffix, spacing, and city formatting var
   ]);
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].url, "https://two.example/jobs/99");
+});
+
+test("dedupe prefers a direct employer ATS link over an aggregator copy", () => {
+  const jobs = dedupeJobs([
+    { company: "Acme", title: "IT Support Specialist", location: "Dallas", url: "https://www.indeed.com/viewjob?jk=123", description: "A longer copied description from the board." },
+    { company: "Acme Inc.", title: "IT Support Specialist", location: "Dallas, TX", url: "https://acme.wd5.myworkdayjobs.com/jobs/job/Dallas/IT-Support_R123", description: "Employer posting." },
+  ]);
+  assert.equal(jobs.length, 1);
+  assert.match(jobs[0].url, /myworkdayjobs/);
+  assert.equal(applicationPath(jobs[0]).kind, "direct");
+});
+
+test("application path labels board handoffs without calling them direct", () => {
+  assert.equal(applicationPath({ url: "https://www.ziprecruiter.com/jobs/123" }).kind, "board");
+  assert.equal(applicationPath({ url: "https://jobs.lever.co/acme/123" }).kind, "direct");
 });

@@ -29,11 +29,13 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
   const sectors = Array.isArray(plan.sectors) ? plan.sectors : [];
   const sectorText = `${job.company} ${job.category || ""} ${String(job.description || "").slice(0, 1_500)}`.toLowerCase();
   const sectorScore = sectors.length ? (sectors.some((sector) => sectorText.includes(String(sector).toLowerCase()) || sectorAliases(sector).some((alias) => sectorText.includes(alias))) ? 100 : 0) : 60;
+  const application = applicationPath(job);
+  const evidence = resultConfidence(job, application);
   const seniorityPenalty = plan.seniority === "entry" && /\b(senior|sr\.?|lead|manager|director|principal|staff)\b/i.test(job.title || "") ? 18 : 0;
   const locationPenalty = hasPlan && preferredLocations.length > 0 && locationScore === 0 && !/\bremote\b/i.test(`${job.location} ${job.workplaceType || ""}`) ? 20 : 0;
   const rawScore = hasPlan
-    ? Math.max(0, Math.round(titleScore * 0.3 + skillScore * 0.35 + locationScore * 0.15 + freshnessScore * 0.1 + sectorScore * 0.1 - seniorityPenalty - locationPenalty))
-    : Math.round(titleScore * 0.4 + skillScore * 0.4 + locationScore * 0.1 + freshnessScore * 0.1);
+    ? Math.max(0, Math.round(titleScore * 0.28 + skillScore * 0.32 + locationScore * 0.14 + freshnessScore * 0.1 + sectorScore * 0.08 + application.score * 0.08 - seniorityPenalty - locationPenalty))
+    : Math.round(titleScore * 0.35 + skillScore * 0.35 + locationScore * 0.1 + freshnessScore * 0.1 + application.score * 0.1);
   const score = eligibility.eligible ? rawScore : 0;
   const jobImportant = [...new Set([...titleTerms, ...descriptionTerms])]
     .filter((term) => term.length > 2 && !resumeTerms.has(term))
@@ -46,14 +48,61 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
     matchedSkills: [...new Set(matchedSkills)].slice(0, 10),
     matchedKeywords,
     missingKeywords: jobImportant,
+    application,
+    confidence: evidence,
+    reasons: fitReasons({ titleScore, skillScore, locationScore, freshnessScore, sectorScore, sectors, matchedSkills, matchedKeywords, application }),
     breakdown: {
       title: Math.round(titleScore),
       resume: Math.round(skillScore),
       location: Math.round(locationScore),
       freshness: Math.round(freshnessScore),
+      application: application.score,
       ...(hasPlan ? { sector: Math.round(sectorScore) } : {}),
     },
   };
+}
+
+export function applicationPath(job) {
+  const candidate = job.applyUrl || job.url || "";
+  let hostname = "";
+  try { hostname = new URL(candidate).hostname.toLowerCase().replace(/^www\./, ""); } catch {}
+  const directHosts = [
+    "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com", "myworkdayjobs.com",
+    "icims.com", "taleo.net", "oraclecloud.com", "successfactors.com", "paycomonline.net",
+    "ultipro.com", "dayforcehcm.com", "governmentjobs.com", "schooljobs.com",
+  ];
+  const boardHosts = ["indeed.com", "glassdoor.com", "ziprecruiter.com", "linkedin.com", "remotive.com", "arbeitnow.com"];
+  if (directHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) {
+    return { kind: "direct", score: 100, label: "direct application", reason: "The link opens a recognized employer ATS or application system." };
+  }
+  if (boardHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) {
+    return { kind: "board", score: 55, label: "job-board handoff", reason: "The link opens a job board and may require another handoff before applying." };
+  }
+  return { kind: "unknown", score: 70, label: "application path unconfirmed", reason: "ClearLead will verify the destination before preparing the application." };
+}
+
+function resultConfidence(job, application) {
+  let points = 0;
+  const evidence = [];
+  if (String(job.description || "").length >= 300) { points += 2; evidence.push("detailed description"); }
+  else if (String(job.description || "").length >= 80) { points += 1; evidence.push("partial description"); }
+  if (job.postedAt && Number.isFinite(Date.parse(job.postedAt))) { points += 1; evidence.push("published date"); }
+  if (job.company && !/not listed/i.test(job.company)) { points += 1; evidence.push("named employer"); }
+  if (job.location && !/not listed/i.test(job.location)) { points += 1; evidence.push("stated location"); }
+  if (application.kind === "direct") { points += 2; evidence.push("direct ATS link"); }
+  const level = points >= 6 ? "high" : points >= 2 ? "medium" : "low";
+  return { level, evidence };
+}
+
+function fitReasons({ titleScore, skillScore, locationScore, freshnessScore, sectorScore, sectors, matchedSkills, matchedKeywords, application }) {
+  const reasons = [];
+  if (titleScore >= 70) reasons.push("Target title alignment");
+  if (skillScore >= 20) reasons.push(`${Math.max(matchedSkills.length, matchedKeywords.length)} resume signals matched`);
+  if (locationScore === 100) reasons.push("Preferred location match");
+  if (sectors.length && sectorScore === 100) reasons.push("Preferred employer sector");
+  if (freshnessScore >= 80) reasons.push("Recently published");
+  if (application.kind === "direct") reasons.push("Direct employer application path");
+  return reasons.slice(0, 4);
 }
 
 function sectorAliases(value) {
@@ -65,12 +114,14 @@ function sectorAliases(value) {
 }
 
 export function dedupeJobs(jobs) {
-  const unique = new Map();
-  const urls = new Set();
+  const byUrl = new Map();
   for (const job of jobs) {
     const urlKey = canonicalJobUrl(job.url);
-    if (urls.has(urlKey)) continue;
-    urls.add(urlKey);
+    const current = byUrl.get(urlKey);
+    if (!current || quality(job) > quality(current)) byUrl.set(urlKey, job);
+  }
+  const unique = new Map();
+  for (const job of byUrl.values()) {
     const key = identity(job);
     const current = unique.get(key);
     if (!current || quality(job) > quality(current)) unique.set(key, job);
@@ -101,7 +152,8 @@ function identity(job) {
 }
 
 function quality(job) {
-  return (job.description?.length || 0) + (job.postedAt ? 100 : 0) + (/jobs\.(lever|ashbyhq)|greenhouse/.test(job.url || "") ? 100 : 0);
+  const path = applicationPath(job);
+  return (job.description?.length || 0) + (job.postedAt ? 100 : 0) + (path.kind === "direct" ? 10_000 : path.kind === "unknown" ? 1_000 : 0);
 }
 
 function ratio(numerator, denominator) {

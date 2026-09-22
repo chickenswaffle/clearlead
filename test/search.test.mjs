@@ -39,7 +39,7 @@ test("multi-board search filters, deduplicates, scores, and reports source failu
 
   assert.equal(result.jobs.length, 1);
   assert.equal(result.jobs[0].title, "Staff Platform Engineer");
-  assert.equal(result.jobs[0].relevance.score, 60);
+  assert.equal(result.jobs[0].relevance.score, 62);
   assert.equal(result.jobs[0].match.breakdown.title, 100);
   assert.equal(result.jobs[0].verificationStatus, "unverified");
   assert.equal(result.sources.find((source) => source.board === "broken").ok, false);
