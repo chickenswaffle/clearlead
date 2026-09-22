@@ -63,8 +63,9 @@ test("Greenhouse reader returns a compact application plan without field values"
   const inspection = JSON.parse(JSON.stringify(context.ClearLeadAdapters.inspectPage(documentRef, "https://boards.greenhouse.io/acme/jobs/7")));
   assert.deepEqual(inspection, {
     atsFamily: "greenhouse", supported: true, phase: "application", fieldCount: 3, requiredCount: 3,
+    emptyRequiredCount: 3,
     recognizedProfileFields: ["firstName", "email"], fileFieldCount: 1, submitControlCount: 1,
-    canRunSafeFill: true, requiresManualResume: true,
+    canRunSafeFill: true, requiresManualResume: true, completionSignals: [],
   });
   assert.doesNotMatch(JSON.stringify(inspection), /field values|candidate@example/i);
 });
@@ -94,6 +95,8 @@ test("extension only fetches the paired localhost pack", () => {
   assert.match(popup, /authorization: `Bearer/);
   assert.match(manifest.host_permissions.join(" "), /127\.0\.0\.1:4173/);
   assert.match(popup, /\/api\/extension\/verify/);
+  assert.match(popup, /\/api\/extension\/run/);
+  assert.match(popup, /make the final Submit click yourself/);
   assert.match(popup, /Open the HTTPS employer job page — not ClearLead/);
   assert.match(content, /CLEARLEAD_CAPTURE_VERIFICATION/);
   assert.doesNotMatch(content, /document\.cookie|localStorage|sessionStorage/);

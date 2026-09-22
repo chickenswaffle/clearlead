@@ -86,8 +86,10 @@ export function createAppServer({
     const extensionSessionApi = url.pathname === "/api/extension/session";
     const extensionPackApi = url.pathname === "/api/extension/pack";
     const extensionVerifyApi = url.pathname === "/api/extension/verify";
+    const extensionRunApi = url.pathname === "/api/extension/run";
     const extensionTokenApi = extensionSessionApi || extensionVerifyApi;
-    const extensionApi = extensionTokenApi || extensionPackApi;
+    const extensionCapabilityApi = extensionPackApi || extensionRunApi;
+    const extensionApi = extensionTokenApi || extensionCapabilityApi;
     const extensionRequestOrigin = extensionOrigin(req);
     if (extensionRequestOrigin) res.setHeader("access-control-allow-origin", extensionRequestOrigin);
     if (req.method === "OPTIONS" && extensionApi && extensionRequestOrigin) {
@@ -183,6 +185,7 @@ export function createAppServer({
           applicationReadiness: applicationProfileReadiness(applicationProfile),
           extensionPaired: activePairing(store.extensionPairing()),
           autofillPack: currentAutofillPack ? publicAutofillPack(currentAutofillPack) : null,
+          applicationRuns: store.applicationRuns(),
           runtime,
         });
       }
@@ -396,7 +399,8 @@ export function createAppServer({
           };
         }
         currentAutofillPack = createAutofillPack({ verified, applicationProfile, resumeDraft, candidateTruth: store.candidateTruth() });
-        return json(res, 200, publicAutofillPack(currentAutofillPack));
+        const run = store.startApplicationRun(currentAutofillPack);
+        return json(res, 200, { ...publicAutofillPack(currentAutofillPack), run });
       }
       if (req.method === "GET" && url.pathname === "/api/extension/session") {
         if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 200, { paired: true, packReady: false });
@@ -409,6 +413,12 @@ export function createAppServer({
         if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 404, { error: "No current autofill pack. Prepare one from a verified job in ClearLead." });
         const { capabilityHash: _capabilityHash, capabilityOrigin: _capabilityOrigin, ...pack } = currentAutofillPack;
         return json(res, 200, pack);
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/run") {
+        const request = await body(req);
+        if (!currentAutofillPack || request.runId !== currentAutofillPack.id) throw new Error("That application run is no longer the active autofill session.");
+        const run = store.recordApplicationRunReport(request.runId, request);
+        return json(res, 200, { run });
       }
       if (req.method === "POST" && url.pathname === "/api/extension/verify") {
         const request = await body(req);

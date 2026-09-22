@@ -14,7 +14,8 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Lever and Ashby application-step readers and controlled field runners
 - [ ] Claim-preserving resume rewrite audit and DOCX output
 - [ ] Workday and SmartRecruiters multi-page runners
-- [ ] Resumable application log and single final approval
+- [x] Persistent application run log with final-review and completion evidence
+- [ ] Restart-safe resume/retry controls and single final approval UX
 
 ## Release contract
 

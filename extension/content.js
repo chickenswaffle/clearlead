@@ -19,7 +19,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 function inspectApplicationPage() {
   const pageUrl = new URL(location.href);
   if (pageUrl.protocol !== "https:" || privateHostname(pageUrl.hostname)) throw new Error("Open the public HTTPS application page, then inspect it again.");
-  return globalThis.ClearLeadAdapters?.inspectPage?.(document, pageUrl.toString()) || { atsFamily: "generic", supported: false, phase: "posting", fieldCount: 0, canRunSafeFill: false };
+  const inspection = globalThis.ClearLeadAdapters?.inspectPage?.(document, pageUrl.toString()) || { atsFamily: "generic", supported: false, phase: "posting", fieldCount: 0, canRunSafeFill: false };
+  return { ...inspection, pageUrl: pageUrl.toString() };
 }
 
 function captureVerificationEvidence() {

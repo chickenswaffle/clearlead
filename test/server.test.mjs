@@ -122,6 +122,18 @@ Staff platform engineer with ten years building distributed systems and reliable
   const extensionPack = await extensionPackResponse.json();
   assert.equal(extensionPack.profile.email, "taylor@example.com");
   assert.equal(extensionPack.policy.submit, "never");
+  assert.equal(extensionPack.id, prepared.run.id);
+  const runReportResponse = await fetch(`${base}/api/extension/run`, {
+    method: "POST",
+    headers: { origin: extensionOrigin, authorization: `Bearer ${extensionSession.capability}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      runId: extensionPack.id,
+      pageUrl: check.finalUrl,
+      inspection: { atsFamily: "greenhouse", phase: "application", fieldCount: 4, requiredCount: 3, emptyRequiredCount: 0, submitControlCount: 1 },
+    }),
+  });
+  assert.equal(runReportResponse.status, 200);
+  assert.equal((await runReportResponse.json()).run.status, "ready_for_final_approval");
   const rejectedExtension = await fetch(`${base}/api/extension/pack`, { headers: { origin: extensionOrigin, authorization: "Bearer wrong-token" } });
   assert.equal(rejectedExtension.status, 401);
   const saved = await postJson(`${base}/api/leads`, { verificationId: check.verificationId });
@@ -180,6 +192,8 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.ok(queue.candidateTruth.factCount > 0);
   assert.equal(queue.leads[0].source, "greenhouse");
   assert.equal(queue.leads[0].board, "example");
+  assert.equal(queue.applicationRuns.find((run) => run.id === prepared.run.id)?.status, "ready_for_final_approval");
+  assert.ok(queue.applicationRuns.some((run) => run.id === preparedWithResume.run.id && run.status === "prepared"));
 
   const manualCheck = await postJson(`${base}/api/verify`, {
     url: "https://jobs.example/manual",

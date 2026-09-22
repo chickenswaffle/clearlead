@@ -5,6 +5,7 @@ import { normalizeSearchConfig } from "./search.mjs";
 import { normalizeResume } from "./resume.mjs";
 import { normalizeApplicationProfile } from "./application-profile.mjs";
 import { buildCandidateTruth } from "./candidate-truth.mjs";
+import { createApplicationRun, publicApplicationRun, recordApplicationRunReport } from "./application-run.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
@@ -17,6 +18,7 @@ export function createStore(dataDir) {
   const kitsPath = path.join(dataDir, "kits");
   const applicationProfilePath = path.join(dataDir, "application-profile.json");
   const extensionPairingPath = path.join(dataDir, "extension-pairing.json");
+  const applicationRunsPath = path.join(dataDir, "application-runs.json");
 
   function read(file, fallback) {
     try {
@@ -92,6 +94,23 @@ export function createStore(dataDir) {
     },
     extensionPairing: () => read(extensionPairingPath, null),
     saveExtensionPairing(pairing) { write(extensionPairingPath, pairing); return pairing; },
+    applicationRuns() {
+      return read(applicationRunsPath, []).map(publicApplicationRun);
+    },
+    startApplicationRun(pack) {
+      const runs = read(applicationRunsPath, []);
+      const run = createApplicationRun(pack);
+      write(applicationRunsPath, [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 250));
+      return publicApplicationRun(run);
+    },
+    recordApplicationRunReport(id, report) {
+      const runs = read(applicationRunsPath, []);
+      const index = runs.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error("That application run is unavailable. Prepare the job again.");
+      runs[index] = recordApplicationRunReport(runs[index], report);
+      write(applicationRunsPath, runs);
+      return publicApplicationRun(runs[index]);
+    },
     searchConfig: () => normalizeSearchConfig(read(searchConfigPath, {})),
     saveSearchConfig(config) {
       const normalized = normalizeSearchConfig(config);

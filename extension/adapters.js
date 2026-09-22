@@ -30,23 +30,32 @@
     const fields = [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])]
       .filter((field) => !field.disabled);
     const pageText = String(documentRef.body?.innerText || "").replace(/\s+/g, " ").slice(0, 20_000);
-    const complete = /\b(?:application (?:has been )?(?:submitted|received)|thank you for applying|thanks for applying)\b/i.test(pageText);
+    const completionSignals = [
+      [/\bapplication (?:has been )?submitted\b/i, "application submitted"],
+      [/\bapplication (?:has been )?received\b/i, "application received"],
+      [/\bthank you for applying\b/i, "thank you for applying"],
+      [/\bthanks for applying\b/i, "thanks for applying"],
+    ].filter(([pattern]) => pattern.test(pageText)).map(([, signal]) => signal);
+    const complete = completionSignals.length > 0;
     const submitControls = [...(fieldRoot?.querySelectorAll("button, input[type='submit']") || [])]
       .filter((control) => /\b(?:submit application|apply|send application)\b/i.test(controlLabel(control)));
     const profileKeys = fields.map((field) => profileKeyFor(detected.id, fieldDescriptor(field))).filter(Boolean);
     const fileFields = fields.filter((field) => String(field.type || "").toLowerCase() === "file");
     const requiredFields = fields.filter((field) => field.required || field.getAttribute?.("aria-required") === "true");
+    const emptyRequiredFields = requiredFields.filter((field) => !fieldHasAnswer(field));
     return {
       atsFamily: detected.id,
       supported: detected.id !== "generic",
       phase: complete ? "complete" : fields.length ? "application" : "posting",
       fieldCount: fields.length,
       requiredCount: requiredFields.length,
+      emptyRequiredCount: emptyRequiredFields.length,
       recognizedProfileFields: [...new Set(profileKeys)],
       fileFieldCount: fileFields.length,
       submitControlCount: submitControls.length,
       canRunSafeFill: detected.capabilities.safeFieldFill && fields.length > 0 && !complete,
       requiresManualResume: fileFields.length > 0,
+      completionSignals,
     };
   }
 
@@ -75,6 +84,11 @@
   }
   function controlLabel(control) {
     return [control.textContent, control.value, control.getAttribute?.("aria-label"), control.getAttribute?.("title")].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  }
+  function fieldHasAnswer(field) {
+    const type = String(field.type || "").toLowerCase();
+    if (type === "checkbox" || type === "radio") return Boolean(field.checked);
+    return Boolean(String(field.value || "").trim());
   }
   function sharedFields() { return fields([
     [/linkedin/i, "linkedinUrl"], [/github/i, "githubUrl"], [/(?:portfolio|personal.?website|personal.?url)/i, "portfolioUrl"],

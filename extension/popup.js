@@ -6,6 +6,7 @@ const result = document.querySelector("#result");
 document.querySelector("#save-token").addEventListener("click", saveToken);
 document.querySelector("#capture").addEventListener("click", captureCurrentPage);
 document.querySelector("#fill").addEventListener("click", fillCurrentPage);
+document.querySelector("#inspect").addEventListener("click", checkApplicationStatus);
 document.querySelector("#forget").addEventListener("click", forgetToken);
 
 async function saveToken() {
@@ -47,9 +48,51 @@ async function fillCurrentPage() {
     const report = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_FILL_SAFE_FIELDS", pack });
     if (!report) throw new Error("Reload the application page and try again.");
     if (report.blockedPage) throw new Error(report.blockedPage);
-    show(`${String(report.atsFamily || inspection.atsFamily || "generic").toUpperCase()} · ${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. Nothing was submitted.`);
+    const afterFill = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+    const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, afterFill || inspection, report);
+    show(`${String(report.atsFamily || inspection.atsFamily || "generic").toUpperCase()} · ${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. ${runMessage(recorded.run)} Nothing was submitted.`);
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
+}
+
+async function checkApplicationStatus() {
+  const button = document.querySelector("#inspect");
+  button.disabled = true;
+  try {
+    const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
+    if (!clearleadToken) throw new Error("Pair the extension first.");
+    const sessionResponse = await fetch(`${SERVER}/api/extension/session`, { headers: { authorization: `Bearer ${clearleadToken}` } });
+    const session = await sessionResponse.json().catch(() => ({}));
+    if (!sessionResponse.ok || !session.capability) throw new Error(session.error || "Prepare a verified job in ClearLead before checking status.");
+    const packResponse = await fetch(`${SERVER}/api/extension/pack`, { headers: { authorization: `Bearer ${session.capability}` } });
+    const pack = await packResponse.json().catch(() => ({}));
+    if (!packResponse.ok) throw new Error(pack.error || `ClearLead returned HTTP ${packResponse.status}.`);
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active application tab is available.");
+    const inspection = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+    if (!inspection || inspection.inspectionError) throw new Error(inspection?.inspectionError || "Reload the application page and try again.");
+    const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, inspection);
+    show(runMessage(recorded.run), recorded.run?.status === "needs_review");
+  } catch (error) { show(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+async function reportApplicationRun(capability, runId, pageUrl, inspection, fill = null) {
+  const response = await fetch(`${SERVER}/api/extension/run`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${capability}`, "content-type": "application/json" },
+    body: JSON.stringify({ runId, pageUrl, inspection, ...(fill ? { fill } : {}) }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `ClearLead returned HTTP ${response.status}.`);
+  return data;
+}
+
+function runMessage(run) {
+  if (run?.status === "complete") return "Employer-page completion evidence recorded. Application marked complete.";
+  if (run?.status === "ready_for_final_approval") return "All required fields appear complete. Review the page once, then make the final Submit click yourself.";
+  if (run?.status === "needs_review") return `${run.lastEvent?.emptyRequiredCount || 0} required fields still appear empty. Review the highlighted and manual fields, then check again.`;
+  return "Application run saved. Continue on the employer page, then check status again.";
 }
 
 async function captureCurrentPage() {
