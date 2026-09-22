@@ -2,6 +2,7 @@ import { terms } from "./resume.mjs";
 import { evaluateJobEligibility } from "./eligibility.mjs";
 
 const SENIORITY = new Set(["intern", "junior", "associate", "senior", "staff", "principal", "lead", "manager", "director", "head", "vp", "chief"]);
+const GENERIC_TITLE_TERMS = new Set(["specialist", "technician", "analyst", "associate", "representative", "administrator", "admin", "engineer", "developer", "consultant", "manager"]);
 
 export function rankJob(job, { resume = {}, profile = {}, query = "", location = "", plan = {}, now = new Date() } = {}) {
   const eligibility = evaluateJobEligibility(job, { resume, profile, plan, now });
@@ -11,12 +12,14 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
   const resumeTerms = new Set([...(resume.keywords || []), ...(resume.skills || []).flatMap(terms)]);
   const matchedSkills = (resume.skills || []).filter((skill) => phrasePresent(`${job.title} ${job.description}`, skill));
   const matchedKeywords = [...resumeTerms].filter((term) => jobTerms.has(term)).slice(0, 18);
-  const targetText = [query, ...(profile.targetRoles || []), ...(resume.roleHints || [])].join(" ");
-  const targetTerms = terms(targetText).filter((term) => !SENIORITY.has(term));
-  const titleMatched = [...new Set(targetTerms)].filter((term) => titleTerms.includes(term));
-
-  const titleScore = targetTerms.length
-    ? ratio(titleMatched.length, Math.min(new Set(targetTerms).size, 5))
+  const targetPhrases = [
+    ...(Array.isArray(plan.titles) ? plan.titles : []),
+    ...String(query).split(","),
+    ...(profile.targetRoles || []),
+    ...(resume.roleHints || []),
+  ].map((value) => String(value).trim()).filter(Boolean);
+  const titleScore = targetPhrases.length
+    ? titleAlignment(titleTerms, targetPhrases)
     : ratio(matchedKeywords.filter((term) => titleTerms.includes(term)).length, Math.min(titleTerms.length, 5));
   const skillScore = resumeTerms.size ? ratio(matchedKeywords.length + matchedSkills.length, Math.min(resumeTerms.size, 24)) : 0;
   const preferredLocations = [location, ...(profile.locations || [])].flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
@@ -69,7 +72,8 @@ export function applicationPath(job) {
   const directHosts = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com", "myworkdayjobs.com",
     "icims.com", "taleo.net", "oraclecloud.com", "successfactors.com", "paycomonline.net",
-    "ultipro.com", "dayforcehcm.com", "governmentjobs.com", "schooljobs.com",
+    "ultipro.com", "dayforcehcm.com", "governmentjobs.com", "schooljobs.com", "applytojob.com",
+    "jobvite.com", "workable.com", "breezy.hr", "recruitee.com", "eightfold.ai", "adp.com",
   ];
   const boardHosts = ["indeed.com", "glassdoor.com", "ziprecruiter.com", "linkedin.com", "remotive.com", "arbeitnow.com"];
   if (directHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) {
@@ -158,6 +162,18 @@ function quality(job) {
 
 function ratio(numerator, denominator) {
   return denominator > 0 ? Math.min(100, (numerator / denominator) * 100) : 0;
+}
+
+function titleAlignment(titleTerms, phrases) {
+  const titleSet = new Set(titleTerms);
+  return Math.max(0, ...phrases.map((phrase) => {
+    const phraseTerms = terms(phrase).filter((term) => !SENIORITY.has(term));
+    const distinctive = phraseTerms.filter((term) => !GENERIC_TITLE_TERMS.has(term));
+    const basis = distinctive.length ? distinctive : phraseTerms;
+    const coverage = ratio(basis.filter((term) => titleSet.has(term)).length, basis.length);
+    const roleNounMatch = phraseTerms.some((term) => GENERIC_TITLE_TERMS.has(term) && titleSet.has(term));
+    return Math.min(100, coverage + (coverage >= 50 && roleNounMatch ? 10 : 0));
+  }));
 }
 
 function daysOld(value, now) {

@@ -65,4 +65,17 @@ test("dedupe prefers a direct employer ATS link over an aggregator copy", () => 
 test("application path labels board handoffs without calling them direct", () => {
   assert.equal(applicationPath({ url: "https://www.ziprecruiter.com/jobs/123" }).kind, "board");
   assert.equal(applicationPath({ url: "https://jobs.lever.co/acme/123" }).kind, "direct");
+  assert.equal(applicationPath({ url: "https://acme.applytojob.com/apply/123" }).kind, "direct");
+});
+
+test("expanded title lists credit the closest role instead of diluting obvious alignment", () => {
+  const match = rankJob({ title: "L1 Pharmacy IT Support", company: "Hospital", location: "Dallas", url: "https://hospital.applytojob.com/apply/123", description: "Support pharmacy systems and hospital users.", postedAt: "2026-09-21T00:00:00Z" }, {
+    resume: { skills: ["windows"], keywords: ["support"] },
+    plan: { titles: ["IT support specialist", "help desk technician", "service desk analyst", "desktop support technician"], locations: ["Dallas"], sectors: ["healthcare"] },
+    location: "Dallas",
+    now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.breakdown.title, 100);
+  assert.equal(match.application.kind, "direct");
+  assert.ok(match.reasons.includes("Target title alignment"));
 });

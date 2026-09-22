@@ -290,11 +290,14 @@ function jobCard(job) {
   const status = check?.status || 'unverified';
   const age = job.postedAt ? relativeTime(job.postedAt) : 'date unavailable';
   const badge = status === 'live' ? 'verified live' : status === 'closed' ? 'verified closed' : status === 'blocked' ? 'verification blocked' : status === 'inconclusive' ? 'not confirmed' : 'published · unverified';
+  const jobUrl = safeHttpUrl(job.applyUrl || job.url) ? job.applyUrl || job.url : '';
   const actions = status === 'live'
     ? `<button class="button ghost" data-resume="${escape(check.verificationId)}">Make custom resume</button><button class="button ghost" data-autofill="${escape(check.verificationId)}">Prepare application</button>`
     : status === 'closed'
       ? '<button class="button ghost" disabled>Closed</button>'
-      : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
+      : status === 'blocked' && jobUrl
+        ? `<a class="button primary" href="${escape(jobUrl)}" target="_blank" rel="noreferrer">Open for browser check</a>`
+        : `<button class="button primary" data-verify-url="${escape(job.applyUrl || job.url)}" ${metadata(job)}>Verify ${status === 'unverified' ? 'role' : 'again'}</button>`;
   const skills = job.match?.matchedSkills?.length ? job.match.matchedSkills.join(', ') : job.match?.matchedKeywords?.slice(0, 5).join(', ');
   const breakdown = job.match?.breakdown;
   const application = job.match?.application;
@@ -311,6 +314,7 @@ function jobCard(job) {
     <div class="match-copy">${reasons.length ? reasons.map((reason) => `<span>${escape(reason)}</span>`).join('') : (skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found')}${confidence ? `<small>${escape(confidence.level)} source confidence</small>` : ''}</div>
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     ${verificationEvidence}
+    ${status === 'blocked' ? '<div class="browser-handoff"><strong>Browser check needed</strong><p>Open the posting, complete any human check yourself, then choose <em>Verify current job page</em> in the paired ClearLead extension. This card will update when rendered evidence arrives.</p></div>' : ''}
     <div class="job-actions">${actions}<a class="text-link" href="${escape(sourceUrl)}" ${sourceUrl === '#verify-panel' ? '' : 'target="_blank" rel="noreferrer"'}>open source ↗</a></div>
   </article>`;
 }

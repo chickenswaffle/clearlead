@@ -9,7 +9,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Search-first release: broad-market discovery is the default, with source coverage shown honestly
 - [x] Search result intelligence: direct-apply preference, application friction, confidence, and fit reasons
 - [x] Official ZipRecruiter search adapter with explicit rate-limit/error handling
-- [ ] Search-to-tailor-to-application guided path verified end to end
+- [x] Search-to-tailor-to-application guided path verified end to end, including blocked-page browser handoff
 - [x] Hard eligibility gate with coded rejection reasons
 - [x] Live-search rejection diagnostics
 - [x] Candidate truth schema v1 with immutable metric tokens and answer review boundaries

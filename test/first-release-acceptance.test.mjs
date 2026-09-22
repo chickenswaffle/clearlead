@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createAppServer } from "../src/server.mjs";
 
-test("fresh local app proves paste, evidence-backed verification, explicit save, and no setup dependency", async (context) => {
+test("fresh local app keeps pasted URLs as an evidence-backed fallback with no setup dependency", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-first-release-"));
   const checkedAt = "2026-08-31T15:30:00.000Z";
   const verifyFn = async (url) => {
@@ -25,8 +25,9 @@ test("fresh local app proves paste, evidence-backed verification, explicit save,
   const home = await fetch(base);
   const html = await home.text();
   assert.equal(home.status, 200);
-  assert.ok(html.indexOf('id="verify-panel"') < html.indexOf('id="resume"'));
-  assert.match(html, /No account, resume, model key, or dashboard setup required/);
+  assert.ok(html.indexOf('id="resume"') < html.indexOf('id="search"'));
+  assert.ok(html.indexOf('id="search"') < html.indexOf('id="verify-panel"'));
+  assert.match(html, /I already have a job link/);
   assert.deepEqual(fs.readdirSync(dataDir), []);
 
   const live = await post(base, "/api/verify", { url: "https://jobs.example.test/live" });
