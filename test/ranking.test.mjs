@@ -85,9 +85,10 @@ test("entry-level ranking surfaces and penalizes heavy experience requirements",
   const options = { resume: { text: "Support Analyst\n03/2020 - Present", keywords: ["support"] }, plan: { titles: ["IT support specialist"], seniority: "entry" }, location: "Dallas", now: new Date("2026-09-22T00:00:00Z") };
   const normal = rankJob({ ...base, description: "Support hospital users and computers." }, options);
   const risky = rankJob({ ...base, description: "Support hospital users. Requires 5+ years of experience in desktop support." }, options);
-  assert.equal(normal.score - risky.score, 14);
+  assert.equal(normal.score - risky.score, 29);
   assert.match(risky.risks[0], /5\+ years/);
-  assert.equal(risky.decision.code, "review");
+  assert.equal(risky.qualifications.items.find((item) => item.code === "skill-desktop-support").status, "missing");
+  assert.equal(risky.decision.code, "skip");
 });
 
 test("a missing explicitly required qualification produces a skip decision", () => {

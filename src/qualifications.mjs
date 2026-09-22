@@ -1,3 +1,5 @@
+import { analyzeResume } from "./resume.mjs";
+
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const EXPERIENCE = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:relevant\s+|professional\s+|prior\s+)?experience\b/gi;
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
@@ -81,6 +83,46 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
     items.push(requirement({ code: "work-authorization", label: "work authorization", importance: "required", status: met ? "met" : "uncertain", postingEvidence: authorizationEvidence, candidateEvidence: met ? "Saved application answers support this requirement." : "Saved work-authorization answers are incomplete or require review.", explanation: met ? "Known application answers support this requirement." : "Confirm authorization and sponsorship before applying." }));
   }
 
+  const clearanceEvidence = sentenceFor(jobText, /\b(?:(?:active|current)\s+)?(?:security\s+)?clearance\b/i);
+  if (clearanceEvidence) {
+    const candidateEvidence = evidenceLine(resumeText, /\b(?:(?:active|current)\s+)?(?:security\s+)?clearance\b/i);
+    items.push(requirement({
+      code: "security-clearance", label: "security clearance", importance: importanceOf(clearanceEvidence, "required"),
+      status: candidateEvidence ? "met" : "missing", postingEvidence: clearanceEvidence,
+      candidateEvidence: candidateEvidence || "No matching clearance evidence found.",
+      explanation: candidateEvidence ? "Clearance evidence appears in the saved resume." : "The saved resume does not prove the requested clearance.",
+    }));
+  }
+
+  const locationEvidence = sentenceFor(jobText, /\b(?:must (?:reside|live|be located)|local candidates?|within \d{1,3} miles?|on[- ]site|onsite|in[- ]person|relocat(?:e|ion))\b/i);
+  if (locationEvidence) {
+    const candidateLocation = normalize([applicationProfile.location, applicationProfile.city, applicationProfile.state].filter(Boolean).join(", "));
+    const jobLocation = normalize(job.location || "");
+    const overlap = locationTerms(candidateLocation).some((term) => locationTerms(jobLocation).includes(term));
+    items.push(requirement({
+      code: "location", label: "location / work-mode requirement", importance: importanceOf(locationEvidence, "required"),
+      status: candidateLocation && overlap ? "met" : "uncertain", postingEvidence: locationEvidence,
+      candidateEvidence: candidateLocation ? `Saved application location: ${candidateLocation}.` : "No saved candidate location is available.",
+      explanation: candidateLocation && overlap ? "The saved location overlaps the posting location; confirm commute or relocation details." : "Confirm the location, commute, or relocation requirement before applying.",
+    }));
+  }
+
+  const candidateSkills = new Set(analyzeResume(candidateText).skills);
+  const seenCodes = new Set(items.map((item) => item.code));
+  for (const skill of analyzeResume(jobText).skills.slice(0, 12)) {
+    if (skill === "itil" && seenCodes.has("cert-itil")) continue;
+    if (skill === "security" && mentionedCertifications(jobText).some((certification) => /security/i.test(certification))) continue;
+    const postingEvidence = sentenceFor(jobText, new RegExp(`\\b${escapeRegex(skill).replace(/\\ /g, "\\s+")}\\b`, "i"));
+    const importance = importanceOf(postingEvidence, "preferred");
+    const present = candidateSkills.has(skill);
+    items.push(requirement({
+      code: `skill-${skill.replace(/[^a-z0-9]+/g, "-")}`, label: skill, importance,
+      status: present ? "met" : "missing", postingEvidence,
+      candidateEvidence: present ? evidenceLine(resumeText, new RegExp(escapeRegex(skill), "i")) : "No matching skill evidence found.",
+      explanation: present ? "Matching skill evidence appears in the saved resume." : `${importance === "required" ? "Required" : "Preferred"} skill evidence was not found and was not added.`,
+    }));
+  }
+
   const counts = { met: 0, uncertain: 0, missing: 0, preferredMissing: 0 };
   for (const item of items) {
     if (item.importance === "preferred" && item.status === "missing") counts.preferredMissing += 1;
@@ -112,3 +154,4 @@ function containsToken(value, token) { return new RegExp(`(?:^|[^a-z0-9])${escap
 function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function quote(value) { const clean = normalize(value); return clean ? `“${clean.slice(0, 220)}”` : ""; }
 function normalize(value) { return String(value || "").replace(/\s+/g, " ").trim(); }
+function locationTerms(value) { return normalize(value).toLowerCase().match(/[a-z]{3,}/g) || []; }

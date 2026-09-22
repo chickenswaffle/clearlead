@@ -36,6 +36,8 @@ test("application kit uses verbatim evidence and rejects invented employers and 
   for (const artifact of ["resume", "fit-report", "cover-letter", "interview-prep"]) assert.doesNotMatch(kit.files[artifact], /Google/i);
   assert.match(kit.files.resume, /30%/);
   assert.match(kit.files["fit-report"], /terraform/i);
+  assert.match(kit.files["fit-report"], /Requirement matrix/i);
+  assert.ok(kit.requirementMatrix.items.some((item) => item.code === "skill-terraform" && item.status === "missing"));
   assert.equal(kit.audit.rejected, 9);
   assert.match(kit.files["claim-audit"], /model-authored candidate prose is not permitted/);
 });

@@ -443,6 +443,8 @@ function renderResumeStudio(draft, verificationId) {
   const suggestedName = resumeFileStem(`${draft.company || 'company'}-${draft.title || 'role'}-resume`);
   const matched = draft.matchedTerms || [];
   const absent = draft.absentTerms || [];
+  const requirementMatrix = draft.requirementMatrix || {items: [], counts: {met: 0, uncertain: 0, missing: 0, preferredMissing: 0}};
+  const changes = draft.changes || [];
   tailorOutput.innerHTML = `<section class="resume-studio" data-draft-id="${escape(draft.id)}" role="region" aria-labelledby="studio-title-${escape(draft.id)}" tabindex="-1">
     <header class="studio-head">
       <div><p class="eyebrow">resume studio / grounded</p><h3 id="studio-title-${escape(draft.id)}">${escape(draft.title || 'Tailored resume')}</h3><p>${escape(draft.company || 'Verified employer')} · built from your saved evidence</p></div>
@@ -473,6 +475,8 @@ function renderResumeStudio(draft, verificationId) {
       <div><span class="grounding-score">${matched.length}</span><p><strong>matched signals</strong><br>${escape(matched.slice(0, 10).join(' · ') || 'Review fit manually')}</p></div>
       <div><span class="grounding-score gap">${absent.length}</span><p><strong>gaps kept out</strong><br>${escape(absent.slice(0, 8).join(' · ') || 'No obvious gaps detected')}</p></div>
     </footer>
+    ${requirementMatrix.items.length ? `<details class="qualification-matrix"><summary>Tailoring requirement matrix · ${requirementMatrix.counts.met} met · ${requirementMatrix.counts.uncertain} uncertain · ${requirementMatrix.counts.missing} required missing · ${requirementMatrix.counts.preferredMissing} preferred missing</summary>${requirementMatrix.items.map((item) => `<div class="qualification ${escape(item.status)}"><strong>${escape(item.status)} · ${escape(item.importance)}</strong><span>${escape(item.label)}</span><p>posting: ${escape(item.postingEvidence || 'evidence unavailable')}<br>candidate: ${escape(item.candidateEvidence || 'evidence unavailable')}<br>${escape(item.explanation)}</p></div>`).join('')}</details>` : ''}
+    <details class="qualification-matrix"><summary>Explain every resume change · ${changes.length} recorded</summary>${changes.length ? changes.map((change) => `<div class="qualification ${escape(change.type)}"><strong>${escape(change.type)}</strong><span>${change.sourceLine ? `source line ${escape(change.sourceLine)} · position ${escape(change.from)} → ${escape(change.to)}` : 'document cleanup'}</span><p>${escape(change.reason)}</p></div>`).join('') : '<div class="qualification"><span>No line order or cleanup changes were needed.</span></div>'}</details>
   </section>`;
 
   const studio = tailorOutput.querySelector('.resume-studio');

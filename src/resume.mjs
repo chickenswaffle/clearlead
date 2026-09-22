@@ -16,6 +16,8 @@ const SKILLS = [
   "pytorch", "tensorflow", "scikit-learn", "pandas", "numpy", "langchain", "llamaindex", "openai", "anthropic",
   "figma", "user research", "product strategy", "roadmapping", "analytics", "experimentation", "a/b testing",
   "salesforce", "hubspot", "sql", "nosql", "security", "cybersecurity", "devops", "sre", "observability",
+  "windows", "macos", "active directory", "microsoft 365", "office 365", "entra id", "servicenow", "jira",
+  "help desk", "desktop support", "technical support", "troubleshooting", "networking", "tcp/ip", "dns", "dhcp", "vpn", "hardware", "itil",
 ];
 
 export function normalizeResume(input = {}, now = () => new Date()) {
@@ -73,7 +75,9 @@ export function terms(value) {
 }
 
 function words(value) {
-  return String(value).toLowerCase().match(/[a-z0-9][a-z0-9+#.\/-]{1,}/g) || [];
+  return (String(value).toLowerCase().match(/[a-z0-9][a-z0-9+#.\/-]{1,}/g) || [])
+    .map((word) => word.replace(/[.\/-]+$/g, ""))
+    .filter(Boolean);
 }
 
 function containsPhrase(text, phrase) {

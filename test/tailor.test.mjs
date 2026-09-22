@@ -24,6 +24,19 @@ test("tailoring reorders only original resume lines and never inserts job claims
   assert.match(draft.groundingNotes.join(" "), /no claims or metrics were invented/i);
   for (const line of resume.split("\n").filter(Boolean)) assert.ok(draft.markdown.includes(line));
   assert.ok(draft.absentTerms.includes("terraform"));
+  assert.ok(draft.requirementMatrix.items.some((item) => item.code === "skill-terraform" && item.status === "missing"));
+  assert.ok(draft.changes.every((change) => change.reason));
+});
+
+test("tailoring uses required evidence as the strongest reorder signal and explains each move", () => {
+  const draft = tailorResume(resume, {
+    status: "live", title: "Platform Engineer", company: "Acme",
+    description: "Kubernetes is required. Customer support is preferred.",
+  });
+  const bullets = draft.markdown.split("\n").filter((line) => line.startsWith("- "));
+  assert.equal(bullets[0], "- Built Python services on Kubernetes.");
+  assert.ok(draft.requirementMatrix.items.some((item) => item.label === "kubernetes" && item.importance === "required" && item.status === "met"));
+  assert.ok(draft.changes.some((change) => change.type === "reorder" && /kubernetes/i.test(change.reason)));
 });
 
 test("tailoring refuses unverified jobs", () => {

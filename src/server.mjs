@@ -293,7 +293,7 @@ export function createAppServer({
         if (verified.tailoredDraft) return json(res, 200, verified.tailoredDraft);
         if (!verified.job?.title) throw new Error("Tailoring requires a role discovered through the ranked search pool so its source metadata is trusted.");
         const resume = store.resume();
-        const draft = tailorResume(resume.text, { ...verified.job, ...verified.lead, status: "live" }, { identity: store.applicationProfile() });
+        const draft = tailorResume(resume.text, { ...verified.job, ...verified.lead, status: "live" }, { identity: store.applicationProfile(), profile: store.profile() });
         const saved = store.saveTailoredDraft(verified.lead, draft);
         verified.used.tailor = true;
         verified.tailoredDraft = {
@@ -308,6 +308,8 @@ export function createAppServer({
           matchedTerms: saved.matchedTerms,
           absentTerms: saved.absentTerms,
           groundingNotes: saved.groundingNotes,
+          requirementMatrix: saved.requirementMatrix,
+          changes: saved.changes,
           preview: saved.markdown,
         };
         return json(res, 200, verified.tailoredDraft);
@@ -367,7 +369,7 @@ export function createAppServer({
         verified.used.aiKit = "in_progress";
         const job = { ...verified.job, ...verified.lead, status: "live" };
         try {
-          const kit = await buildApplicationKit({ resumeText: resume.text, job, generateText: (request) => aiClient.generate(secret, request) });
+          const kit = await buildApplicationKit({ resumeText: resume.text, job, profile: store.profile(), applicationProfile: store.applicationProfile(), generateText: (request) => aiClient.generate(secret, request) });
           const saved = store.saveApplicationKit(job, kit);
           consent.state = "used";
           verified.used.aiKit = true;
@@ -381,6 +383,7 @@ export function createAppServer({
             preview: saved.preview,
             matchedTerms: saved.matchedTerms,
             gaps: saved.gaps,
+            requirementMatrix: saved.requirementMatrix,
             audit: saved.audit,
             pdfUrl: `/api/kits/${saved.id}/resume/pdf`,
             docxUrl: `/api/kits/${saved.id}/resume/docx`,

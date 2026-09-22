@@ -1,24 +1,35 @@
 import { terms } from "./resume.mjs";
+import { analyzeQualifications } from "./qualifications.mjs";
 
-export function tailorResume(resumeText, job, { identity = {} } = {}) {
-  const originalSource = joinWrappedPdfBullets(repairLigatureSpacing(String(resumeText || "").replace(/\r\n?/g, "\n").trim()));
+export function tailorResume(resumeText, job, { identity = {}, profile = {} } = {}) {
+  const rawSource = String(resumeText || "").replace(/\r\n?/g, "\n").trim();
+  const repairedSource = repairLigatureSpacing(rawSource);
+  const originalSource = joinWrappedPdfBullets(repairedSource);
   const source = withIdentityHeader(originalSource, identity);
   if (source.length < 120) throw new Error("Add a complete resume before creating a tailored draft.");
   if (!job || job.status !== "live") throw new Error("Only a verified-live job can produce a tailored draft.");
 
-  const jobTerms = new Set(terms(`${job.title} ${job.description || ""}`));
+  const qualifications = analyzeQualifications(job, { text: source }, { profile, applicationProfile: identity });
+  const jobTerms = weightedJobTerms(job, qualifications.items);
   const originalLines = source.split("\n");
-  const tailoredLines = reorderBulletsWithinSections(originalLines, jobTerms);
+  const reordered = reorderBulletsWithinSections(originalLines, jobTerms, qualifications.items);
   const resumeTerms = new Set(terms(source));
-  const matched = [...jobTerms].filter((term) => resumeTerms.has(term)).slice(0, 20);
-  const absent = [...jobTerms].filter((term) => !resumeTerms.has(term)).slice(0, 12);
+  const matched = [...jobTerms.keys()].filter((term) => resumeTerms.has(term)).slice(0, 20);
+  const absent = [...jobTerms.keys()].filter((term) => !resumeTerms.has(term)).slice(0, 12);
+  const changes = [
+    ...(repairedSource !== rawSource ? [{ type: "cleanup", reason: "Repaired split PDF ligatures without changing claim meaning." }] : []),
+    ...(originalSource !== repairedSource ? [{ type: "cleanup", reason: "Rejoined wrapped PDF bullet lines without adding words." }] : []),
+    ...(source !== originalSource ? [{ type: "identity", reason: "Restored the header only from saved application identity fields." }] : []),
+    ...reordered.changes,
+  ];
   const groundingNotes = [
     "This draft changes emphasis only: every line comes from your saved resume or application identity; no claims or metrics were invented.",
+    `Requirement matrix: ${qualifications.counts.met} met, ${qualifications.counts.uncertain} uncertain, ${qualifications.counts.missing} required missing, and ${qualifications.counts.preferredMissing} preferred missing.`,
     matched.length ? `Evidence already in your resume: ${matched.join(", ")}.` : "No strong keyword overlap was found; review this role carefully before applying.",
     absent.length ? `Job-language gaps not added to the resume: ${absent.join(", ")}.` : "No obvious job-language gaps were detected in the analyzed terms.",
   ];
-  const markdown = [...tailoredLines, ""].join("\n");
-  return { markdown, matchedTerms: matched, absentTerms: absent, groundingNotes, sourceLineCount: originalLines.length };
+  const markdown = [...reordered.lines, ""].join("\n");
+  return { markdown, matchedTerms: matched, absentTerms: absent, groundingNotes, requirementMatrix: qualifications, changes, sourceLineCount: originalLines.length };
 }
 
 function withIdentityHeader(source, identity) {
@@ -84,12 +95,27 @@ function joinWrappedPdfBullets(value) {
   return output.join("\n");
 }
 
-function reorderBulletsWithinSections(lines, jobTerms) {
+function reorderBulletsWithinSections(lines, jobTerms, requirements) {
   const output = [];
+  const changes = [];
   let bullets = [];
   const flush = () => {
     if (bullets.length === 0) return;
-    bullets.sort((left, right) => scoreLine(right, jobTerms) - scoreLine(left, jobTerms) || left.index - right.index);
+    const original = [...bullets];
+    bullets.sort((left, right) => scoreLine(right.line, jobTerms) - scoreLine(left.line, jobTerms) || left.index - right.index);
+    bullets.forEach((item, position) => {
+      const priorPosition = original.findIndex((candidate) => candidate.index === item.index);
+      if (position !== priorPosition) {
+        const drivers = requirementDrivers(item.line, requirements);
+        changes.push({
+          type: "reorder",
+          sourceLine: item.index + 1,
+          from: priorPosition + 1,
+          to: position + 1,
+          reason: drivers.length ? `Moved within its section to emphasize supported evidence for: ${drivers.join(", ")}.` : "Moved within its section because it has stronger verified-posting term overlap.",
+        });
+      }
+    });
     output.push(...bullets.map((item) => item.line));
     bullets = [];
   };
@@ -102,9 +128,21 @@ function reorderBulletsWithinSections(lines, jobTerms) {
     output.push(line);
   });
   flush();
-  return output;
+  return { lines: output, changes };
 }
 
 function scoreLine(line, jobTerms) {
-  return terms(line).filter((term) => jobTerms.has(term)).length;
+  return terms(line).reduce((score, term) => score + (jobTerms.get(term) || 0), 0);
+}
+function weightedJobTerms(job, requirements) {
+  const weights = new Map();
+  const add = (value, weight) => terms(value).forEach((term) => weights.set(term, Math.max(weights.get(term) || 0, weight)));
+  add(job.description || "", 1);
+  add(job.title || "", 3);
+  for (const item of requirements) add(`${item.label} ${item.postingEvidence}`, item.importance === "required" ? 6 : 3);
+  return weights;
+}
+function requirementDrivers(line, requirements) {
+  const lineTerms = new Set(terms(line));
+  return requirements.filter((item) => terms(`${item.label} ${item.postingEvidence}`).some((term) => lineTerms.has(term))).map((item) => item.label).slice(0, 3);
 }

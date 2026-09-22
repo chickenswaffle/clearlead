@@ -38,3 +38,15 @@ test("spelled-out experience and required language cannot score as risk-free", (
   assert.equal(result.items.find((item) => item.code === "language-spanish").status, "missing");
   assert.equal(result.counts.missing, 2);
 });
+
+test("skills, clearance, and onsite location constraints remain individually auditable", () => {
+  const result = analyzeQualifications({
+    location: "Dallas, TX",
+    description: "Kubernetes is required. Active security clearance required. This is an onsite role and local candidates are required.",
+  }, { text: "Built Kubernetes services.\nActive security clearance." }, {
+    applicationProfile: { city: "Dallas", state: "TX" },
+  });
+  assert.equal(result.items.find((item) => item.code === "skill-kubernetes").status, "met");
+  assert.equal(result.items.find((item) => item.code === "security-clearance").status, "met");
+  assert.equal(result.items.find((item) => item.code === "location").status, "met");
+});
