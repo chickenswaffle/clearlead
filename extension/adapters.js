@@ -1,10 +1,10 @@
 (function registerClearLeadAdapters(scope) {
   const definitions = [
-    adapter("workday", [/(?:^|\.)myworkdayjobs\.com$/i], workdayFields(), ["[data-automation-id='applyFlowPage']", "form"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
+    adapter("workday", [/(?:^|\.)myworkdayjobs\.com$/i], workdayFields(), ["[data-automation-id='applyFlowPage']", "[data-automation-id='applicationPage']"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
     adapter("greenhouse", [/(?:^|\.)greenhouse\.io$/i, /(?:^|\.)greenhouse\.com$/i], greenhouseFields(), ["#application_form", "form#application-form", "form[action*='applications']"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
     adapter("lever", [/(?:^|\.)lever\.co$/i], leverFields(), [".application-form", "form[action*='apply']"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
     adapter("ashby", [/(?:^|\.)ashbyhq\.com$/i], ashbyFields(), ["[data-testid='application-form']", "form"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
-    adapter("smartrecruiters", [/(?:^|\.)smartrecruiters\.com$/i], smartRecruitersFields(), ["[data-test='application-form']", "form"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
+    adapter("smartrecruiters", [/(?:^|\.)smartrecruiters\.com$/i], smartRecruitersFields(), ["[data-test='application-form']", "[data-testid='application-form']", "main form[action*='application']"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
   ];
 
   function detect(value) {
@@ -24,7 +24,7 @@
   function inspectPage(documentRef, pageUrl) {
     const detected = detect(pageUrl);
     const definition = definitions.find((item) => item.id === detected.id);
-    const applicationRoot = definition?.applicationRoots.map((selector) => documentRef.querySelector?.(selector)).find(Boolean) || null;
+    const applicationRoot = applicationRootFor(documentRef, definition);
     const applicationPath = /\/(?:apply|application)(?:\/|$|\?)/i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
     const fieldRoot = applicationRoot || (applicationPath ? documentRef : null);
     const fields = [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])]
@@ -39,10 +39,13 @@
     const complete = completionSignals.length > 0;
     const submitControls = [...(fieldRoot?.querySelectorAll("button, input[type='submit']") || [])]
       .filter((control) => /\b(?:submit application|apply|send application)\b/i.test(controlLabel(control)));
+    const nextControls = [...(fieldRoot?.querySelectorAll("button, input[type='button'], input[type='submit']") || [])]
+      .filter((control) => /\b(?:next|continue|save and continue)\b/i.test(controlLabel(control)) && !/\bsubmit\b/i.test(controlLabel(control)));
     const profileKeys = fields.map((field) => profileKeyFor(detected.id, fieldDescriptor(field))).filter(Boolean);
     const fileFields = fields.filter((field) => String(field.type || "").toLowerCase() === "file");
     const requiredFields = fields.filter((field) => field.required || field.getAttribute?.("aria-required") === "true");
     const emptyRequiredFields = requiredFields.filter((field) => !fieldHasAnswer(field));
+    const stepLabel = stepTitle(documentRef, detected.id) || (fields.length ? "Application" : "Posting");
     return {
       atsFamily: detected.id,
       supported: detected.id !== "generic",
@@ -50,13 +53,25 @@
       fieldCount: fields.length,
       requiredCount: requiredFields.length,
       emptyRequiredCount: emptyRequiredFields.length,
+      stepKey: `${detected.id}:${slug(stepLabel)}`,
+      stepLabel,
       recognizedProfileFields: [...new Set(profileKeys)],
       fileFieldCount: fileFields.length,
       submitControlCount: submitControls.length,
+      nextControlCount: nextControls.length,
       canRunSafeFill: detected.capabilities.safeFieldFill && fields.length > 0 && !complete,
       requiresManualResume: fileFields.length > 0,
       completionSignals,
     };
+  }
+
+  function applicationFields(documentRef, pageUrl) {
+    const detected = detect(pageUrl);
+    const definition = definitions.find((item) => item.id === detected.id);
+    const root = applicationRootFor(documentRef, definition);
+    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)/i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
+    const fieldRoot = root || (applicationPath ? documentRef : null);
+    return [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])].filter((field) => !field.disabled);
   }
 
   function adapter(id, hosts, fields, applicationRoots, capabilities) {
@@ -74,11 +89,26 @@
   scope.ClearLeadAdapters = Object.freeze({
     detect,
     inspectPage,
+    applicationFields,
     profileKeyFor,
     supported: Object.freeze(definitions.map(publicDefinition)),
   });
 
   function fields(entries) { return entries.map(([pattern, profileKey]) => ({ pattern, profileKey })); }
+  function applicationRootFor(documentRef, definition) { return definition?.applicationRoots.map((selector) => documentRef.querySelector?.(selector)).find(Boolean) || null; }
+  function stepTitle(documentRef, adapterId) {
+    const selectors = adapterId === "workday"
+      ? ["[data-automation-id='stepTitle']", "[data-automation-id='progressBar'] [aria-current='step']", "h1", "h2"]
+      : adapterId === "smartrecruiters"
+        ? ["[data-test='step-title']", "[data-testid='step-title']", "[aria-current='step']", "h1", "h2"]
+        : ["h1", "h2"];
+    for (const selector of selectors) {
+      const label = String(documentRef.querySelector?.(selector)?.textContent || "").replace(/\s+/g, " ").trim();
+      if (label) return label.slice(0, 100);
+    }
+    return "";
+  }
+  function slug(value) { return String(value || "step").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "step"; }
   function fieldDescriptor(field) {
     return [field.name, field.id, field.autocomplete, field.getAttribute?.("aria-label"), field.getAttribute?.("placeholder")].filter(Boolean).join(" ");
   }

@@ -12,6 +12,7 @@ export function createApplicationRun(pack) {
     resume: pack.resume ? compactResume(pack.resume) : null,
     truth: pack.truth ? { schema: String(pack.truth.schema || ""), fingerprint: String(pack.truth.fingerprint || "") } : null,
     allowedPages: [...new Set((pack.allowedPages || []).map(normalizePage).filter(Boolean))],
+    navigation: sanitizeNavigation(pack.navigation),
     events: [{ type: "prepared", at: now }],
   };
 }
@@ -20,7 +21,7 @@ export function recordApplicationRunReport(run, input, now = new Date().toISOStr
   if (!run || !STATUSES.has(run.status)) throw new Error("That application run is unavailable. Prepare the job again.");
   if (run.status === "complete") return run;
   const report = sanitizeApplicationReport(input);
-  if (!sameAllowedApplication(run.allowedPages, report.pageUrl)) {
+  if (!sameAllowedApplication(run.allowedPages, run.navigation, report.pageUrl)) {
     throw new Error("This application page does not belong to the prepared job.");
   }
   const status = statusFromReport(report);
@@ -48,6 +49,7 @@ export function resumeApplicationRun(run, pack, now = new Date().toISOString()) 
     resume: refreshed.resume,
     truth: refreshed.truth,
     allowedPages: refreshed.allowedPages,
+    navigation: refreshed.navigation,
     events: [...(run.events || []), { type: "resumed", at: now }].slice(-100),
   };
 }
@@ -64,8 +66,11 @@ export function sanitizeApplicationReport(input = {}) {
     fieldCount: count(inspection.fieldCount),
     requiredCount: count(inspection.requiredCount),
     emptyRequiredCount: count(inspection.emptyRequiredCount),
+    stepKey: shortToken(inspection.stepKey || `${inspection.atsFamily || "generic"}-application`, 100),
+    stepLabel: shortText(inspection.stepLabel || "Application", 100),
     fileFieldCount: count(inspection.fileFieldCount),
     submitControlCount: count(inspection.submitControlCount),
+    nextControlCount: count(inspection.nextControlCount),
     completionSignals,
     fill: fill ? {
       filled: count(fill.filled),
@@ -95,11 +100,14 @@ function statusFromReport(report) {
   if (report.phase === "complete" && report.completionSignals.length) return "complete";
   if (report.phase !== "application") return "in_progress";
   if (report.emptyRequiredCount === 0 && report.submitControlCount > 0) return "ready_for_final_approval";
-  if (report.fill || report.emptyRequiredCount > 0) return "needs_review";
+  const outstanding = report.fill ? report.fill.review + report.fill.blocked + report.fill.manual : 0;
+  if (report.emptyRequiredCount > 0 || outstanding > 0) return "needs_review";
+  if (report.nextControlCount > 0) return "in_progress";
+  if (report.fill) return "needs_review";
   return "in_progress";
 }
 
-function sameAllowedApplication(allowedPages, pageUrl) {
+function sameAllowedApplication(allowedPages, navigation, pageUrl) {
   if (!pageUrl) return false;
   let target;
   try { target = new URL(pageUrl); }
@@ -109,7 +117,22 @@ function sameAllowedApplication(allowedPages, pageUrl) {
       const prepared = new URL(allowed);
       return prepared.protocol === target.protocol && prepared.host === target.host && prepared.pathname === target.pathname && prepared.search === target.search;
     } catch { return false; }
-  });
+  }) || allowedByNavigation(navigation, target);
+}
+
+function allowedByNavigation(scope, target) {
+  if (!scope?.multiPage || target.origin !== scope.origin) return false;
+  if (scope.pathPrefix && (target.pathname === scope.pathPrefix || target.pathname.startsWith(`${scope.pathPrefix}/`))) return true;
+  return scope.jobTokens.some((token) => `${target.pathname}${target.search}`.toLowerCase().includes(token));
+}
+
+function sanitizeNavigation(value) {
+  if (!value?.multiPage) return null;
+  try {
+    const origin = new URL(value.origin).origin;
+    if (!origin.startsWith("https://")) return null;
+    return { multiPage: true, origin, pathPrefix: normalizedPath(value.pathPrefix), jobTokens: strings(value.jobTokens, 5, 100).map((token) => token.toLowerCase()) };
+  } catch { return null; }
 }
 
 function compactJob(job = {}) {
@@ -132,5 +155,7 @@ function normalizePage(value) {
 }
 
 function shortToken(value, limit) { return String(value || "").replace(/[^a-z0-9_-]/gi, "").slice(0, limit) || "generic"; }
+function shortText(value, limit) { return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit); }
+function normalizedPath(value) { const path = String(value || "/").replace(/\/{2,}/g, "/"); return path.length > 1 ? path.replace(/\/+$/, "") : "/"; }
 function count(value) { return Math.max(0, Math.min(10_000, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0)); }
 function strings(values, limit, length) { return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, length)).filter(Boolean))].slice(0, limit); }

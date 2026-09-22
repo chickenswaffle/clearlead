@@ -63,11 +63,55 @@ test("Greenhouse reader returns a compact application plan without field values"
   const inspection = JSON.parse(JSON.stringify(context.ClearLeadAdapters.inspectPage(documentRef, "https://boards.greenhouse.io/acme/jobs/7")));
   assert.deepEqual(inspection, {
     atsFamily: "greenhouse", supported: true, phase: "application", fieldCount: 3, requiredCount: 3,
-    emptyRequiredCount: 3,
+    emptyRequiredCount: 3, stepKey: "greenhouse:application", stepLabel: "Application",
     recognizedProfileFields: ["firstName", "email"], fileFieldCount: 1, submitControlCount: 1,
-    canRunSafeFill: true, requiresManualResume: true, completionSignals: [],
+    nextControlCount: 0, canRunSafeFill: true, requiresManualResume: true, completionSignals: [],
   });
   assert.doesNotMatch(JSON.stringify(inspection), /field values|candidate@example/i);
+});
+
+test("Workday and SmartRecruiters readers identify multi-page steps without navigating", () => {
+  const context = { URL };
+  vm.runInNewContext(adapters, context);
+  const field = (name, value = "") => ({ name, id: name, type: "text", value, required: true, disabled: false, autocomplete: "", getAttribute() { return ""; } });
+  const applicationDocument = ({ rootSelector, stepSelector, stepLabel, fields, controls }) => {
+    const root = { querySelectorAll(selector) { return selector.startsWith("input:not") ? fields : selector.startsWith("button") ? controls : []; } };
+    return {
+      body: { innerText: "Application" },
+      querySelector(selector) {
+        if (selector === rootSelector) return root;
+        if (selector === stepSelector) return { textContent: stepLabel };
+        return null;
+      },
+      querySelectorAll() { return []; },
+    };
+  };
+  const next = { textContent: "Save and Continue", value: "", getAttribute() { return ""; } };
+  const submit = { textContent: "Submit Application", value: "", getAttribute() { return ""; } };
+  const workdayDocument = applicationDocument({ rootSelector: "[data-automation-id='applyFlowPage']", stepSelector: "[data-automation-id='stepTitle']", stepLabel: "My Information", fields: [field("legalNameSection_firstName", "Taylor"), field("emailAddress")], controls: [next] });
+  const smartDocument = applicationDocument({ rootSelector: "[data-test='application-form']", stepSelector: "[data-test='step-title']", stepLabel: "Review", fields: [field("firstName", "Taylor"), field("email", "taylor@example.com")], controls: [submit] });
+  const workday = context.ClearLeadAdapters.inspectPage(workdayDocument, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply?step=1");
+  const smart = context.ClearLeadAdapters.inspectPage(smartDocument, "https://jobs.smartrecruiters.com/Acme/744000123456-role/application");
+  assert.equal(workday.stepKey, "workday:my-information");
+  assert.equal(workday.nextControlCount, 1);
+  assert.equal(workday.submitControlCount, 0);
+  assert.equal(workday.emptyRequiredCount, 1);
+  assert.equal(smart.stepKey, "smartrecruiters:review");
+  assert.equal(smart.nextControlCount, 0);
+  assert.equal(smart.submitControlCount, 1);
+  assert.equal(smart.emptyRequiredCount, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.ClearLeadAdapters.applicationFields(workdayDocument, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply"))).map((item) => item.name), ["legalNameSection_firstName", "emailAddress"]);
+});
+
+test("multi-page scope stays on the prepared ATS job", () => {
+  const context = { chrome: { runtime: { onMessage: { addListener() {} } } }, URL };
+  vm.runInNewContext(`${content}\n;globalThis.__allowed = allowedApplicationPage;`, context);
+  const workday = { allowedPages: ["https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345"], navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"] } };
+  assert.equal(context.__allowed(workday, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply?step=2"), true);
+  assert.equal(context.__allowed(workday, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Other/R-99999/apply"), false);
+  assert.equal(context.__allowed(workday, "https://evil.example/en-US/jobs/job/Role/R-12345/apply"), false);
+  const smart = { allowedPages: [], navigation: { multiPage: true, origin: "https://jobs.smartrecruiters.com", pathPrefix: "/Acme/744000123456-role", jobTokens: ["744000123456-role"] } };
+  assert.equal(context.__allowed(smart, "https://jobs.smartrecruiters.com/oneclick-ui/company/Acme/publication/744000123456-role?step=2"), true);
 });
 
 test("Lever and Ashby readers distinguish postings from application forms", () => {

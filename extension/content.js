@@ -76,7 +76,7 @@ function privateHostname(value) {
 
 function fillSafeFields(pack) {
   const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;
-  if (!Array.isArray(pack?.allowedPages) || !pack.allowedPages.includes(currentPage)) {
+  if (!allowedApplicationPage(pack, currentPage)) {
     return { filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: `This page does not exactly match the verified application page. Open the prepared URL from ClearLead.` };
   }
   const inspection = inspectApplicationPage();
@@ -85,7 +85,8 @@ function fillSafeFields(pack) {
   }
   const report = { filled: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, truthFingerprint: String(pack?.truth?.fingerprint || "") };
   const ats = globalThis.ClearLeadAdapters?.detect?.(location.href) || { id: "generic" };
-  const fields = [...document.querySelectorAll("input:not([type='hidden']), select, textarea")].filter(visible);
+  const scopedFields = globalThis.ClearLeadAdapters?.applicationFields?.(document, location.href);
+  const fields = (Array.isArray(scopedFields) ? scopedFields : [...document.querySelectorAll("input:not([type='hidden']), select, textarea")]).filter(visible);
   for (const field of fields) {
     const descriptor = describe(field);
     const classification = classify(field, descriptor, pack.profile || {}, ats.id);
@@ -99,6 +100,18 @@ function fillSafeFields(pack) {
     else report.review += 1;
   }
   return report;
+}
+
+function allowedApplicationPage(pack, currentPage) {
+  if (Array.isArray(pack?.allowedPages) && pack.allowedPages.includes(currentPage)) return true;
+  const scope = pack?.navigation;
+  if (!scope?.multiPage) return false;
+  try {
+    const page = new URL(currentPage);
+    if (page.origin !== scope.origin) return false;
+    if (scope.pathPrefix && (page.pathname === scope.pathPrefix || page.pathname.startsWith(`${scope.pathPrefix}/`))) return true;
+    return Array.isArray(scope.jobTokens) && scope.jobTokens.some((token) => token && `${page.pathname}${page.search}`.toLowerCase().includes(String(token).toLowerCase()));
+  } catch { return false; }
 }
 
 function classify(field, descriptor, profile, atsFamily = "generic") {

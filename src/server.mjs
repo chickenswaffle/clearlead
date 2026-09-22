@@ -590,6 +590,7 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
   verifiedUrl.hash = "";
   const applicationUrl = verifiedUrl.toString();
   const allowedPages = [`${verifiedUrl.origin}${normalizedPath(verifiedUrl.pathname)}${verifiedUrl.search}`];
+  const navigation = applicationNavigationScope(verifiedUrl);
   const safeProfile = Object.fromEntries([
     "fullName", "firstName", "lastName", "email", "phone", "location", "city", "state", "postalCode", "country",
     "linkedinUrl", "githubUrl", "portfolioUrl",
@@ -600,6 +601,7 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     expiresAt: Date.now() + 10 * 60 * 1000,
     job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
     allowedPages,
+    navigation,
     resume: resumeDraft,
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
@@ -615,7 +617,14 @@ function restoreApplicationResume(store, run) {
   return { ...saved };
 }
 function publicAutofillPack(pack) {
-  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, policy: pack.policy };
+  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, navigation: pack.navigation, policy: pack.policy };
+}
+function applicationNavigationScope(page) {
+  if (!/(?:^|\.)(?:myworkdayjobs|smartrecruiters)\.com$/i.test(page.hostname)) return null;
+  const pathname = normalizedPath(page.pathname);
+  const jobTokens = [...new Set(pathname.split("/").filter((part) => /^(?=.*\d)[a-z0-9_-]{6,}$/i.test(part)).map((part) => part.toLowerCase()).slice(-3))];
+  if (pathname === "/" && !jobTokens.length) return null;
+  return { multiPage: true, origin: page.origin, pathPrefix: pathname, jobTokens };
 }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
 function rememberDiscovered(cache, jobs) {

@@ -50,7 +50,7 @@ async function fillCurrentPage() {
     if (report.blockedPage) throw new Error(report.blockedPage);
     const afterFill = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
     const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, afterFill || inspection, report);
-    show(`${String(report.atsFamily || inspection.atsFamily || "generic").toUpperCase()} · ${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. ${runMessage(recorded.run)} Nothing was submitted.`);
+    show(`${String(report.atsFamily || inspection.atsFamily || "generic").toUpperCase()} · ${String(afterFill?.stepLabel || inspection.stepLabel || "Application")} · ${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. ${runMessage(recorded.run)} Nothing was submitted.`);
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }
@@ -91,7 +91,10 @@ async function reportApplicationRun(capability, runId, pageUrl, inspection, fill
 function runMessage(run) {
   if (run?.status === "complete") return "Employer-page completion evidence recorded. Application marked complete.";
   if (run?.status === "ready_for_final_approval") return "All required fields appear complete. Review the page once, then make the final Submit click yourself.";
-  if (run?.status === "needs_review") return `${run.lastEvent?.emptyRequiredCount || 0} required fields still appear empty. Review the highlighted and manual fields, then check again.`;
+  if (run?.status === "needs_review") return run.lastEvent?.emptyRequiredCount > 0
+    ? `${run.lastEvent.emptyRequiredCount} required fields still appear empty. Review the highlighted and manual fields, then check again.`
+    : "Highlighted or manual fields still need review. Resolve them, then check status again.";
+  if (run?.lastEvent?.nextControlCount > 0) return `${run.lastEvent.stepLabel || "This step"} is ready. Review it, use the employer's Next or Continue button, then fill the next step.`;
   return "Application run saved. Continue on the employer page, then check status again.";
 }
 

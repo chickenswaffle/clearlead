@@ -116,6 +116,28 @@ test("a distinct HTTPS apply URL is verified and becomes the exact autofill page
   const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId: search.body.jobs[0].verification.verificationId });
   assert.equal(prepared.body.job.applicationUrl, "https://apply.example.com/form/step-one?job=7");
   assert.deepEqual(prepared.body.allowedPages, ["https://apply.example.com/form/step-one?job=7"]);
+  assert.equal(prepared.body.navigation, null);
+});
+
+test("Workday packs carry a job-bound multi-page navigation scope", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-workday-pack-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const jobUrl = "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Dallas/Support-Tech_R-12345";
+  const server = createAppServer({
+    dataDir,
+    verifyFn: async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Workday application is live.", checkedAt: "2026-09-22T12:00:00.000Z" }),
+    discoverFn: async (board) => ({ source: "greenhouse", board, error: null, jobs: [{ source: "greenhouse", board, company: "Acme", title: "Support Technician", location: "Dallas", url: jobUrl, description: "Windows device and user support" }] }),
+  });
+  await direct(server, "POST", "/api/resume", { text: "Experienced support technician troubleshooting Windows devices, user accounts, networks, software, service tickets, hardware, documentation, and customer requests. Delivers reliable incident ownership, account maintenance, device setup, training, technical communication, and resolution notes for busy teams.", filename: "resume.md" });
+  await direct(server, "POST", "/api/application-profile", { fullName: "Taylor Example", email: "taylor@example.com" });
+  const search = await direct(server, "POST", "/api/search", { boards: ["acme"], query: "support technician", autoVerify: true, verifyLimit: 1 });
+  const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId: search.body.jobs[0].verification.verificationId });
+  assert.deepEqual(prepared.body.navigation, {
+    multiPage: true,
+    origin: "https://acme.wd5.myworkdayjobs.com",
+    pathPrefix: "/en-US/jobs/job/Dallas/Support-Tech_R-12345",
+    jobTokens: ["support-tech_r-12345"],
+  });
 });
 
 test("manual verification keeps ranked metadata across harmless URL normalization", async (context) => {

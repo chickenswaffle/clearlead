@@ -67,3 +67,24 @@ test("resuming keeps the durable run id and history while requiring fresh inspec
   assert.equal(resumed.events.at(-1).type, "resumed");
   assert.equal(resumed.job.httpStatus, 200);
 });
+
+test("multi-page reports accept only the prepared ATS job scope and record step evidence", () => {
+  const multiPagePack = {
+    ...pack,
+    id: "run-multi",
+    allowedPages: ["https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345"],
+    navigation: { multiPage: true, origin: "https://acme.wd5.myworkdayjobs.com", pathPrefix: "/en-US/jobs/job/Role/R-12345", jobTokens: ["r-12345"] },
+  };
+  const run = createApplicationRun(multiPagePack);
+  const progressed = recordApplicationRunReport(run, {
+    pageUrl: "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply?step=2",
+    inspection: { atsFamily: "workday", phase: "application", stepKey: "workday:experience", stepLabel: "Experience", requiredCount: 2, emptyRequiredCount: 0, nextControlCount: 1 },
+  });
+  assert.equal(progressed.status, "in_progress");
+  assert.equal(progressed.events.at(-1).stepKey, "workdayexperience");
+  assert.equal(progressed.events.at(-1).nextControlCount, 1);
+  assert.throws(() => recordApplicationRunReport(progressed, {
+    pageUrl: "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Other/R-99999/apply",
+    inspection: { phase: "application" },
+  }), /does not belong/);
+});
