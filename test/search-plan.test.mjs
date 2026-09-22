@@ -8,6 +8,7 @@ test("plain-English DFW search corrects a typo and expands support roles and nea
   });
   assert.equal(plan.seniority, "entry");
   assert.equal(plan.filters.state, "TX");
+  assert.equal(plan.locationRequired, false);
   assert.ok(plan.titles.includes("help desk technician"));
   assert.ok(plan.titles.includes("technical support specialist"));
   assert.ok(plan.locations.includes("Cedar Hill"));
@@ -15,6 +16,11 @@ test("plain-English DFW search corrects a typo and expands support roles and nea
   assert.ok(plan.locations.includes("McKinney"));
   assert.deepEqual(plan.sectors, ["healthcare", "education"]);
   assert.ok(plan.ledgerQueries.length >= 3);
+});
+
+test("location language distinguishes a preference from a hard boundary", () => {
+  assert.equal(deterministicSearchPlan("support jobs near Dallas").locationRequired, false);
+  assert.equal(deterministicSearchPlan("support jobs only within 20 miles of Dallas").locationRequired, true);
 });
 
 test("AI planning sends only the compact index and fails closed to the local plan", async () => {
@@ -40,8 +46,17 @@ test("valid AI expansion cannot change fixed DFW geography", async () => {
 
 test("saved must-haves become a required any-of sector gate", () => {
   const plan = deterministicSearchPlan("entry level IT support in DFW", {
-    profile: { mustHaves: ["hospital or healthcare", "school or school district"] },
+    profile: { preferences: [], mustHaves: ["hospital or healthcare", "school or school district"] },
   });
   assert.deepEqual(plan.requiredSectors, ["healthcare", "education"]);
   assert.match(plan.explanation, /healthcare or education required/);
+});
+
+test("saved preferences boost sectors without becoming hard gates", () => {
+  const plan = deterministicSearchPlan("entry level IT support in DFW", {
+    profile: { preferences: ["hospital or healthcare", "school or school district"], mustHaves: [] },
+  });
+  assert.deepEqual(plan.sectors, ["healthcare", "education"]);
+  assert.deepEqual(plan.requiredSectors, []);
+  assert.doesNotMatch(plan.explanation, /required/);
 });

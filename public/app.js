@@ -139,7 +139,7 @@ async function saveResume() {
       }),
     });
     showResume(data.resume);
-    showProfile(appState?.profile || {targetRoles: [], locations: [], mustHaves: []}, data.readiness);
+    showProfile(appState?.profile || {targetRoles: [], locations: [], preferences: [], mustHaves: []}, data.readiness);
     resumeStatus.textContent = `${data.resume.message} Saved locally.`;
     document.querySelector('#search').scrollIntoView({behavior: 'smooth'});
   } catch (error) {
@@ -180,6 +180,7 @@ async function saveProfile() {
       requestJson('/api/profile', {method: 'POST', body: JSON.stringify({
         targetRoles: list('#target-roles'),
         locations: list('#locations'),
+        preferences: list('#preferences'),
         mustHaves: list('#must-haves'),
       })}),
       requestJson('/api/application-profile', {method: 'POST', body: JSON.stringify(readApplicationProfile())}),
@@ -269,7 +270,7 @@ function renderSearch(data) {
   document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchedAt)} · ${healthy}/${data.sources.length} sources`;
   searchSummary.textContent = data.outage
     ? 'Every configured source failed. No posting status was inferred.'
-    : `${data.total} ranked roles · ${data.matchedCount || data.total} eligible in the deduplicated pool · ${data.rejectedCount || 0} rejected by hard requirements · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
+    : `${data.total} actionable roles · ${data.funnel?.discovered ?? '—'} discovered · ${data.funnel?.titleMismatch ?? 0} outside target roles · ${data.funnel?.locationMismatch ?? 0} outside target area · ${data.rejectedCount || 0} hard-rejected · ${data.funnel?.fitSkipped ?? 0} weak/unsupported fits hidden · ${data.funnel?.duplicatesRemoved ?? 0} duplicates removed · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
   const activeSources = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published${source.cached ? ' · cached' : ''}${source.note ? ` · ${escape(source.note)}` : ''}` : escape(source.error)}</span>`).join('');
   const gatedSources = (data.providerAccess || []).filter((provider) => provider.status === 'partner-required').map((provider) => `<span class="source-chip gate">${escape(provider.name)} · partner access needed</span>`).join('');
   sourceHealth.innerHTML = activeSources + gatedSources;
@@ -304,15 +305,18 @@ function jobCard(job) {
   const confidence = job.match?.confidence;
   const reasons = job.match?.reasons || [];
   const risks = job.match?.risks || [];
+  const decision = job.match?.decision;
+  const qualifications = job.match?.qualifications?.items || [];
   const sourceUrl = safeHttpUrl(job.url) ? job.url : '#verify-panel';
   const verificationEvidence = check ? verificationEvidenceMarkup({...check, source: check.source || job.source}, {allowSave: status === 'live'}) : '';
   return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
-    <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}${application ? `<span class="badge path-${escape(application.kind)}">${escape(application.label)}</span>` : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
+    <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}${decision ? `<span class="badge decision-${escape(decision.code)}">${escape(decision.label)}</span>` : ''}${application ? `<span class="badge path-${escape(application.kind)}">${escape(application.label)}</span>` : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
     <h3>${escape(job.title)}</h3>
     <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
     <div class="score-row"><strong>${score}</strong><span>strategic match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · apply ${breakdown.application ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
     <div class="match-copy">${reasons.length ? reasons.map((reason) => `<span>${escape(reason)}</span>`).join('') : (skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found')}${confidence ? `<small>${escape(confidence.level)} source confidence</small>` : ''}</div>
+    ${qualifications.length ? `<details class="qualification-matrix"><summary>Requirement check · ${job.match.qualifications.counts.met} met · ${job.match.qualifications.counts.uncertain} uncertain · ${job.match.qualifications.counts.missing} missing</summary>${qualifications.map((item) => `<div class="qualification ${escape(item.status)}"><strong>${escape(item.status)} · ${escape(item.importance)}</strong><span>${escape(item.label)}</span><p>posting: ${escape(item.postingEvidence || 'evidence unavailable')}<br>candidate: ${escape(item.candidateEvidence || 'evidence unavailable')}<br>${escape(item.explanation)}</p></div>`).join('')}</details>` : ''}
     ${risks.length ? `<div class="fit-risks"><strong>Review before applying</strong>${risks.map((risk) => `<p>${escape(risk)}</p>`).join('')}</div>` : ''}
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     ${verificationEvidence}
@@ -696,6 +700,7 @@ function wireOutcomeActions(url) {
 function showProfile(profile, state) {
   document.querySelector('#target-roles').value = (profile.targetRoles || []).join(', ');
   document.querySelector('#locations').value = (profile.locations || []).join(', ');
+  document.querySelector('#preferences').value = (profile.preferences || []).join(', ');
   document.querySelector('#must-haves').value = (profile.mustHaves || []).join(', ');
   readiness.className = state.ready ? 'readiness ready' : 'readiness not-ready';
   readiness.textContent = state.message;

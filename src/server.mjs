@@ -52,6 +52,7 @@ export function createAppServer({
       discoverFn: sourceDiscovery ? undefined : greenhouseFn,
       profile: store.profile(),
       resume,
+      applicationProfile: store.applicationProfile(),
     });
     if (search.outage) {
       const { allJobs: _allJobs, ...publicSearch } = search;
@@ -394,6 +395,7 @@ export function createAppServer({
         store.saveProfile({
           targetRoles: strings(profile.targetRoles),
           locations: strings(profile.locations),
+          preferences: strings(profile.preferences),
           mustHaves: strings(profile.mustHaves),
         });
         const saved = store.profile();

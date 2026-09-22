@@ -43,6 +43,11 @@ test("multi-board search filters, deduplicates, scores, and reports source failu
   assert.equal(result.jobs[0].match.breakdown.title, 100);
   assert.equal(result.jobs[0].verificationStatus, "unverified");
   assert.equal(result.sources.find((source) => source.board === "broken").ok, false);
+  assert.equal(result.funnel.discovered, 4);
+  assert.equal(result.funnel.titleMismatch, 2);
+  assert.equal(result.funnel.eligibleBeforeDedupe, 2);
+  assert.equal(result.funnel.duplicatesRemoved, 1);
+  assert.equal(result.funnel.fitSkipped, 0);
 });
 
 test("search supports comma-separated role and location alternatives", async () => {
@@ -84,7 +89,21 @@ test("smart support search retains related titles before ranking and excludes un
     discoverFn: async () => ({ error: null, jobs }),
     resume: { skills: ["windows"], keywords: ["troubleshoot", "desktop", "support"], roleHints: [] },
   });
-  assert.deepEqual(new Set(result.jobs.map((job) => job.title)), new Set(["IT Technician", "End User Computing Technician", "Technology Support Associate"]));
+  assert.deepEqual(new Set(result.jobs.map((job) => job.title)), new Set(["IT Technician", "End User Computing Technician", "Technology Support Associate", "IT Support Specialist"]));
+  assert.equal(result.jobs.at(-1).location, "Austin", "outside-location matches remain visible but rank below preferred locations");
+});
+
+test("smart title recall keeps exact planned titles and common aliases", async () => {
+  for (const [planned, published] of [
+    ["junior developer", "Junior Developer"], ["computer technician", "PC Technician"], ["SOC analyst", "SOC Analyst"],
+    ["business intelligence analyst", "BI Analyst"], ["field support technician", "Field Service Technician"], ["user support specialist", "End User Support Specialist"],
+  ]) {
+    const plan = { titles: [planned], locations: [], sectors: [], seniority: "entry", remote: false, locationRequired: false };
+    const result = await searchPublishedRoles({ boards: ["example"], query: planned, plan }, {
+      discoverFn: async () => ({ error: null, jobs: [{ title: published, location: "Dallas", url: `https://jobs.example/${encodeURIComponent(published)}`, description: "Technology support role" }] }),
+    });
+    assert.equal(result.jobs.length, 1, `${published} should survive title recall`);
+  }
 });
 
 test("search excludes hard-ineligible roles and reports rejection reasons", async () => {
@@ -102,6 +121,7 @@ test("search excludes hard-ineligible roles and reports rejection reasons", asyn
   });
   assert.deepEqual(result.jobs.map((job) => job.url), ["https://jobs.example/hospital"]);
   assert.equal(result.rejectedCount, 2);
+  assert.equal(result.funnel.hardRejected, 2);
   assert.ok(result.rejectionReasons.some((reason) => reason.code === "skillbridge-only" && reason.count === 1));
   assert.ok(result.rejectionReasons.some((reason) => reason.code === "stale-posting" && reason.count === 1));
 });

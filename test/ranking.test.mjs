@@ -12,7 +12,7 @@ test("resume ranking is explainable and deterministic", () => {
   assert.deepEqual(first, second);
   assert.ok(first.score >= 60);
   assert.ok(first.matchedSkills.includes("python"));
-  assert.deepEqual(Object.keys(first.breakdown), ["title", "resume", "location", "freshness", "application"]);
+  assert.deepEqual(Object.keys(first.breakdown), ["title", "resume", "location", "freshness", "application", "qualifications"]);
   assert.equal(first.confidence.level, "medium");
   assert.ok(first.reasons.includes("Target title alignment"));
 });
@@ -82,9 +82,18 @@ test("expanded title lists credit the closest role instead of diluting obvious a
 
 test("entry-level ranking surfaces and penalizes heavy experience requirements", () => {
   const base = { title: "L1 IT Support", company: "Hospital", location: "Dallas", url: "https://hospital.applytojob.com/apply/123", postedAt: "2026-09-21T00:00:00Z" };
-  const options = { resume: { keywords: ["support"] }, plan: { titles: ["IT support specialist"], seniority: "entry" }, location: "Dallas", now: new Date("2026-09-22T00:00:00Z") };
+  const options = { resume: { text: "Support Analyst\n03/2020 - Present", keywords: ["support"] }, plan: { titles: ["IT support specialist"], seniority: "entry" }, location: "Dallas", now: new Date("2026-09-22T00:00:00Z") };
   const normal = rankJob({ ...base, description: "Support hospital users and computers." }, options);
   const risky = rankJob({ ...base, description: "Support hospital users. Requires 5+ years of experience in desktop support." }, options);
-  assert.equal(normal.score - risky.score, 10);
+  assert.equal(normal.score - risky.score, 14);
   assert.match(risky.risks[0], /5\+ years/);
+  assert.equal(risky.decision.code, "review");
+});
+
+test("a missing explicitly required qualification produces a skip decision", () => {
+  const match = rankJob({ title: "IT Support Specialist", company: "Hospital", location: "Dallas", url: "https://hospital.applytojob.com/apply/123", description: "Support users. Security+ certification required.", postedAt: "2026-09-21T00:00:00Z" }, {
+    resume: { text: "Desktop support", keywords: ["support"] }, query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.counts.missing, 1);
+  assert.equal(match.decision.code, "skip");
 });

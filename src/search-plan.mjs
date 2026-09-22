@@ -25,6 +25,7 @@ const SECTORS = [
 
 export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = {}) {
   const intent = clean(prompt, MAX_PROMPT) || "best jobs for my resume";
+  const preferenceText = strings(profile.preferences).join(" ");
   const requiredText = strings(profile.mustHaves).join(" ");
   const matchedFamily = ROLE_FAMILIES.find((family) => family.match.test(intent));
   const profileTitles = strings(profile.targetRoles).slice(0, 8);
@@ -32,8 +33,9 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
   const titles = unique([...(matchedFamily?.titles || []), ...profileTitles, ...resumeTitles]).slice(0, 14);
   const dfw = /\b(dfw|dallas[ -]fort worth|cedar hill|desoto|de soto|duncanville|lancaster|grand prairie|mansfield|midlothian|waxahachie|arlington|fort worth|irving)\b/i.test(intent);
   const remote = /\b(remote|work from home|wfh)\b/i.test(intent);
+  const locationRequired = /\b(?:only|must be|strictly|no farther than|within \d+\s*miles?)\b/i.test(intent);
   const locations = dfw ? DFW_LOCATIONS : unique([...extractLocations(intent), ...strings(profile.locations)]).slice(0, 14);
-  const sectors = SECTORS.filter((sector) => sector.match.test(`${intent} ${requiredText}`)).map((sector) => sector.value);
+  const sectors = SECTORS.filter((sector) => sector.match.test(`${intent} ${preferenceText} ${requiredText}`)).map((sector) => sector.value);
   const requiredSectors = SECTORS.filter((sector) => sector.match.test(requiredText)).map((sector) => sector.value);
   const seniority = /\b(entry|entry-level|entry level|junior|starter|no experience)\b/i.test(intent) ? "entry" : "any";
   const searchTerms = titles.length ? titles : fallbackTerms(resume, profile);
@@ -48,6 +50,7 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
     requiredSectors,
     seniority,
     remote,
+    locationRequired,
     keywords,
     ledgerQueries,
     filters: { country: dfw ? "US" : "", state: dfw ? "TX" : "" },
@@ -55,7 +58,7 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
       query: searchTerms.join(", "),
       location: locations.join(", "),
     },
-    explanation: buildExplanation({ searchTerms, locations, sectors, requiredSectors, seniority, remote }),
+    explanation: buildExplanation({ searchTerms, locations, sectors, requiredSectors, seniority, remote, locationRequired }),
   };
 }
 
@@ -96,7 +99,7 @@ export async function createSearchPlan(prompt, { resume = {}, profile = {}, gene
       requiredSectors: fallback.requiredSectors,
       ledgerQueries: unique(mergedTitles.map(compactQuery)).slice(0, 5),
       searchConfig: { ...fallback.searchConfig, query: mergedTitles.join(", ") },
-      explanation: buildExplanation({ searchTerms: mergedTitles, locations: fallback.locations, sectors: unique([...sectors, ...fallback.sectors]), requiredSectors: fallback.requiredSectors, seniority: fallback.seniority, remote: fallback.remote }),
+      explanation: buildExplanation({ searchTerms: mergedTitles, locations: fallback.locations, sectors: unique([...sectors, ...fallback.sectors]), requiredSectors: fallback.requiredSectors, seniority: fallback.seniority, remote: fallback.remote, locationRequired: fallback.locationRequired }),
     };
   } catch {
     return { ...fallback, note: "AI returned an invalid search plan, so ClearLead used its built-in search expansion." };
@@ -115,9 +118,9 @@ function extractLocations(value) {
 function compactQuery(title) {
   return clean(title, 80).replace(/\b(entry|junior|senior|lead|specialist|technician|analyst)\b/gi, " ").replace(/\s+/g, " ").trim() || clean(title, 80);
 }
-function buildExplanation({ searchTerms, locations, sectors, requiredSectors = [], seniority, remote }) {
+function buildExplanation({ searchTerms, locations, sectors, requiredSectors = [], seniority, remote, locationRequired }) {
   const parts = [`expanded to ${searchTerms.length} related titles`];
-  if (locations.length) parts.push(`${locations.length} preferred locations`);
+  if (locations.length) parts.push(`${locations.length} ${locationRequired ? "required" : "preferred"} locations`);
   if (sectors.length) parts.push(`${sectors.join(" + ")} employers`);
   if (requiredSectors.length) parts.push(`${requiredSectors.join(" or ")} required`);
   if (seniority === "entry") parts.push("entry-level preference");

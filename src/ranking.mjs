@@ -1,10 +1,11 @@
 import { terms } from "./resume.mjs";
 import { evaluateJobEligibility } from "./eligibility.mjs";
+import { analyzeQualifications } from "./qualifications.mjs";
 
 const SENIORITY = new Set(["intern", "junior", "associate", "senior", "staff", "principal", "lead", "manager", "director", "head", "vp", "chief"]);
 const GENERIC_TITLE_TERMS = new Set(["specialist", "technician", "analyst", "associate", "representative", "administrator", "admin", "engineer", "developer", "consultant", "manager"]);
 
-export function rankJob(job, { resume = {}, profile = {}, query = "", location = "", plan = {}, now = new Date() } = {}) {
+export function rankJob(job, { resume = {}, profile = {}, applicationProfile = {}, query = "", location = "", plan = {}, now = new Date() } = {}) {
   const eligibility = evaluateJobEligibility(job, { resume, profile, plan, now });
   const titleTerms = terms(job.title);
   const descriptionTerms = terms(job.description).slice(0, 900);
@@ -19,7 +20,7 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
     ...(resume.roleHints || []),
   ].map((value) => String(value).trim()).filter(Boolean);
   const titleScore = targetPhrases.length
-    ? titleAlignment(titleTerms, targetPhrases)
+    ? titleAlignment(job.title, targetPhrases)
     : ratio(matchedKeywords.filter((term) => titleTerms.includes(term)).length, Math.min(titleTerms.length, 5));
   const skillScore = resumeTerms.size ? ratio(matchedKeywords.length + matchedSkills.length, Math.min(resumeTerms.size, 24)) : 0;
   const preferredLocations = [location, ...(profile.locations || [])].flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
@@ -34,13 +35,15 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
   const sectorScore = sectors.length ? (sectors.some((sector) => sectorText.includes(String(sector).toLowerCase()) || sectorAliases(sector).some((alias) => sectorText.includes(alias))) ? 100 : 0) : 60;
   const application = applicationPath(job);
   const evidence = resultConfidence(job, application);
+  const qualifications = analyzeQualifications(job, resume, { now, profile, applicationProfile });
   const qualificationRiskPenalty = eligibility.warnings.some((warning) => warning.code === "heavy-experience-requirement") ? 10 : 0;
   const seniorityPenalty = plan.seniority === "entry" && /\b(senior|sr\.?|lead|manager|director|principal|staff)\b/i.test(job.title || "") ? 18 : 0;
   const locationPenalty = hasPlan && preferredLocations.length > 0 && locationScore === 0 && !/\bremote\b/i.test(`${job.location} ${job.workplaceType || ""}`) ? 20 : 0;
   const rawScore = hasPlan
-    ? Math.max(0, Math.round(titleScore * 0.28 + skillScore * 0.32 + locationScore * 0.14 + freshnessScore * 0.1 + sectorScore * 0.08 + application.score * 0.08 - seniorityPenalty - locationPenalty - qualificationRiskPenalty))
-    : Math.max(0, Math.round(titleScore * 0.35 + skillScore * 0.35 + locationScore * 0.1 + freshnessScore * 0.1 + application.score * 0.1 - qualificationRiskPenalty));
+    ? Math.max(0, Math.round(titleScore * 0.28 + skillScore * 0.32 + locationScore * 0.14 + freshnessScore * 0.1 + sectorScore * 0.08 + application.score * 0.08 - seniorityPenalty - locationPenalty - qualificationRiskPenalty - qualifications.penalty))
+    : Math.max(0, Math.round(titleScore * 0.35 + skillScore * 0.35 + locationScore * 0.1 + freshnessScore * 0.1 + application.score * 0.1 - qualificationRiskPenalty - qualifications.penalty));
   const score = eligibility.eligible ? rawScore : 0;
+  const decision = applicationDecision(score, qualifications, eligibility);
   const jobImportant = [...new Set([...titleTerms, ...descriptionTerms])]
     .filter((term) => term.length > 2 && !resumeTerms.has(term))
     .slice(0, 8);
@@ -54,7 +57,12 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
     missingKeywords: jobImportant,
     application,
     confidence: evidence,
-    risks: eligibility.warnings.map((warning) => warning.reason),
+    qualifications,
+    decision,
+    risks: [...new Set([
+      ...eligibility.warnings.map((warning) => warning.reason),
+      ...qualifications.items.filter((item) => item.importance === "required" && item.status !== "met").map((item) => `${item.label}: ${item.explanation}`),
+    ])],
     reasons: fitReasons({ titleScore, skillScore, locationScore, freshnessScore, sectorScore, sectors, matchedSkills, matchedKeywords, application }),
     breakdown: {
       title: Math.round(titleScore),
@@ -62,9 +70,16 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
       location: Math.round(locationScore),
       freshness: Math.round(freshnessScore),
       application: application.score,
+      qualifications: Math.max(0, 100 - qualifications.penalty * 4),
       ...(hasPlan ? { sector: Math.round(sectorScore) } : {}),
     },
   };
+}
+
+function applicationDecision(score, qualifications, eligibility) {
+  if (!eligibility.eligible || qualifications.counts.missing > 0 || score < 50) return { code: "skip", label: "skip for now", reason: qualifications.counts.missing > 0 ? "A required qualification is not supported by the saved resume." : "The evidence-backed fit score is below the review threshold." };
+  if (score >= 75 && qualifications.counts.uncertain === 0 && eligibility.warnings.length === 0) return { code: "apply", label: "priority apply", reason: "Strong fit with no detected qualification gaps or unresolved requirement warnings." };
+  return { code: "review", label: "review first", reason: "Potential fit, but one or more requirements or evidence signals need a human check." };
 }
 
 export function applicationPath(job) {
@@ -166,16 +181,25 @@ function ratio(numerator, denominator) {
   return denominator > 0 ? Math.min(100, (numerator / denominator) * 100) : 0;
 }
 
-function titleAlignment(titleTerms, phrases) {
+function titleAlignment(title, phrases) {
+  const titleTerms = canonicalTitleTerms(title);
   const titleSet = new Set(titleTerms);
   return Math.max(0, ...phrases.map((phrase) => {
-    const phraseTerms = terms(phrase).filter((term) => !SENIORITY.has(term));
+    const phraseTerms = canonicalTitleTerms(phrase).filter((term) => !SENIORITY.has(term));
     const distinctive = phraseTerms.filter((term) => !GENERIC_TITLE_TERMS.has(term));
     const basis = distinctive.length ? distinctive : phraseTerms;
     const coverage = ratio(basis.filter((term) => titleSet.has(term)).length, basis.length);
     const roleNounMatch = phraseTerms.some((term) => GENERIC_TITLE_TERMS.has(term) && titleSet.has(term));
     return Math.min(100, coverage + (coverage >= 50 && roleNounMatch ? 10 : 0));
   }));
+}
+
+function canonicalTitleTerms(value) {
+  const raw = String(value || "").toLowerCase();
+  const output = terms(raw).flatMap((term) => term === "pc" ? ["computer"] : term === "bi" ? ["business", "intelligence"] : term === "service" ? ["support"] : [term]);
+  if (/\bend user computing\b|\beuc\b/.test(raw)) output.push("desktop", "support", "user");
+  if (/\b(?:it|information technology|computer|pc)\s+technician\b/.test(raw)) output.push("computer", "support");
+  return [...new Set(output)];
 }
 
 function daysOld(value, now) {

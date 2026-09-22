@@ -55,6 +55,11 @@ test("entry searches flag contradictory five-plus-year requirements for review",
   assert.ok(result.warnings.some((warning) => warning.code === "heavy-experience-requirement"));
 });
 
+test("spelled-out experience requirements are not missed", () => {
+  const result = evaluateJobEligibility({ title: "L1 Support", description: "Five years experience required.", postedAt: "2026-09-20T00:00:00Z" }, { plan: { seniority: "entry" }, now: NOW });
+  assert.ok(result.warnings.some((warning) => warning.code === "heavy-experience-requirement"));
+});
+
 test("active clearance requirements fail closed without matching evidence", () => {
   const result = evaluateJobEligibility({
     title: "Help Desk Technician",

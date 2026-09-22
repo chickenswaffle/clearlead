@@ -42,6 +42,7 @@ export async function searchPublishedRoles(input, {
   discoverFn,
   profile = {},
   resume = {},
+  applicationProfile = {},
   now = () => new Date(),
 } = {}) {
   const config = normalizeSearchConfig(input);
@@ -75,19 +76,30 @@ export async function searchPublishedRoles(input, {
   const locationGroups = config.location.split(",").map(words).filter((group) => group.length > 0);
   const candidates = [];
   const rejected = [];
+  const funnel = {
+    discovered: outcomes.reduce((total, source) => total + source.jobs.length, 0),
+    missingUrl: 0,
+    titleMismatch: 0,
+    locationMismatch: 0,
+    hardRejected: 0,
+    eligibleBeforeDedupe: 0,
+    duplicatesRemoved: 0,
+  };
   for (const source of outcomes) {
     for (const job of source.jobs) {
-      if (!job.url) continue;
+      if (!job.url) { funnel.missingUrl += 1; continue; }
       const titleTerms = new Set(words(job.title));
       if (queryGroups.length > 0) {
         const titleMatches = input.plan
           ? smartTitleMatches(job.title, input.plan)
           : queryGroups.some((group) => group.every((term) => titleTerms.has(term)));
-        if (!titleMatches) continue;
+        if (!titleMatches) { funnel.titleMismatch += 1; continue; }
       }
       const locationText = new Set(words(job.location));
       const remoteAllowed = input.plan?.remote && /\bremote\b/i.test(String(job.location) + " " + String(job.workplaceType));
-      if (locationGroups.length > 0 && !remoteAllowed && !locationGroups.some((group) => group.every((term) => locationText.has(term)))) continue;
+      const locationMatches = locationGroups.some((group) => group.every((term) => locationText.has(term)));
+      const hardLocationFilter = !input.plan || input.plan.locationRequired === true;
+      if (locationGroups.length > 0 && hardLocationFilter && !remoteAllowed && !locationMatches) { funnel.locationMismatch += 1; continue; }
       const normalized = {
         ...job,
         company: job.company || source.name,
@@ -95,10 +107,11 @@ export async function searchPublishedRoles(input, {
         board: job.board || source.board,
         verificationStatus: "unverified",
       };
-      normalized.match = rankJob(normalized, { resume, profile, query: config.query, location: config.location, plan: input.plan, now: now() });
+      normalized.match = rankJob(normalized, { resume, profile, applicationProfile, query: config.query, location: config.location, plan: input.plan, now: now() });
       normalized.relevance = { score: normalized.match.score, matched: normalized.match.matchedSkills };
       if (!normalized.match.eligibility.eligible) {
         rejected.push(normalized);
+        funnel.hardRejected += 1;
         continue;
       }
       candidates.push(normalized);
@@ -106,20 +119,27 @@ export async function searchPublishedRoles(input, {
   }
 
   const matchedJobs = dedupeJobs(candidates).sort((a, b) => {
+    const decision = decisionPriority(a.match?.decision?.code) - decisionPriority(b.match?.decision?.code);
+    if (decision !== 0) return decision;
     const score = (b.match?.score || 0) - (a.match?.score || 0);
     if (score !== 0) return score;
     return timestamp(b.postedAt) - timestamp(a.postedAt);
   });
-  const jobs = matchedJobs.slice(0, 150);
+  funnel.eligibleBeforeDedupe = candidates.length;
+  funnel.duplicatesRemoved = candidates.length - matchedJobs.length;
+  const actionableJobs = matchedJobs.filter((job) => job.match?.decision?.code !== "skip");
+  funnel.fitSkipped = matchedJobs.length - actionableJobs.length;
+  const jobs = actionableJobs.slice(0, 150);
   const outage = outcomes.length > 0 && outcomes.every((source) => !source.ok);
 
   return {
     config,
     jobs,
     allJobs: matchedJobs,
-    matchedCount: matchedJobs.length,
+    matchedCount: actionableJobs.length,
     rejectedCount: rejected.length,
     rejectionReasons: rejectionSummary(rejected),
+    funnel,
     outage,
     sources: outcomes.map(({ jobs: sourceJobs, ...source }) => ({ ...source, count: sourceJobs.length })),
     providerAccess: providerAccess(config),
@@ -154,6 +174,11 @@ function providerAccess(config) {
 function words(value) { return String(value).toLowerCase().match(/[a-z0-9+#.]{2,}/g) || []; }
 function smartTitleMatches(title, plan) {
   const plannedTitles = plan.titles || [];
+  const normalizedTitle = normalizedTitleWords(title);
+  if (plannedTitles.some((planned) => {
+    const normalizedPlanned = normalizedTitleWords(planned);
+    return normalizedPlanned === normalizedTitle || normalizedTitle.includes(normalizedPlanned) || normalizedPlanned.includes(normalizedTitle);
+  })) return true;
   const titleWords = new Set(words(title));
   const plannedWords = new Set(plannedTitles.flatMap(words));
   const supportPlan = [...plannedWords].some((word) => ["support", "help", "desk", "desktop", "computer"].includes(word));
@@ -170,5 +195,9 @@ function smartTitleMatches(title, plan) {
   const genericOverlap = [...plannedWords].filter((word) => generic.has(word) && titleWords.has(word)).length;
   return distinctiveOverlap >= 2 || (distinctiveOverlap >= 1 && genericOverlap >= 1);
 }
+function normalizedTitleWords(value) {
+  return words(value).map((word) => ({ pc: "computer", bi: "business-intelligence", service: "support" })[word] || word).filter((word) => !["junior", "entry", "level"].includes(word)).join("-");
+}
 function timestamp(value) { const parsed = Date.parse(value || ""); return Number.isFinite(parsed) ? parsed : 0; }
+function decisionPriority(value) { return value === "apply" ? 0 : value === "review" ? 1 : 2; }
 function humanize(value) { return String(value).replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }

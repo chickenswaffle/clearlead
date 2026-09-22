@@ -1,10 +1,12 @@
 const STOP_WORDS = new Set(["and", "the", "of", "for", "in", "to", "a", "an", "with"]);
 
 export function normalizeProfile(input = {}) {
+  const legacyTargeting = !Object.prototype.hasOwnProperty.call(input || {}, "preferences");
   return {
     targetRoles: cleanList(input.targetRoles),
     locations: cleanList(input.locations),
-    mustHaves: cleanList(input.mustHaves),
+    preferences: cleanList(legacyTargeting ? input.mustHaves : input.preferences),
+    mustHaves: legacyTargeting ? [] : cleanList(input.mustHaves),
   };
 }
 

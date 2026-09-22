@@ -24,7 +24,8 @@ const SPECIAL_PROGRAMS = [
 const SENIOR_TITLE = /\b(?:senior|sr\.?|staff|principal|lead|manager|director|head|chief|vp|vice president)\b/i;
 const ACTIVE_CLEARANCE_REQUIRED = /\b(?:(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance|(?:top\s+secret|secret|ts\s*\/\s*sci)\s+(?:security\s+)?clearance\s+(?:is\s+)?required)\b/i;
 const CLEARANCE_EVIDENCE = /\b(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance\b|\b(?:top\s+secret|ts\s*\/\s*sci)\b/i;
-const EXPERIENCE_REQUIREMENT = /\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:relevant\s+|professional\s+|prior\s+)?experience\b/gi;
+const EXPERIENCE_REQUIREMENT = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:relevant\s+|professional\s+|prior\s+)?experience\b/gi;
+const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
 export function evaluateJobEligibility(job = {}, {
   resume = {},
@@ -123,6 +124,6 @@ function clean(value) { return String(value || "").replace(/\s+/g, " ").trim(); 
 function unique(values) { return [...new Set(values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean))]; }
 function maximumExperienceRequirement(value) {
   let maximum = 0;
-  for (const match of String(value || "").matchAll(EXPERIENCE_REQUIREMENT)) maximum = Math.max(maximum, Number(match[1]) || 0);
+  for (const match of String(value || "").matchAll(EXPERIENCE_REQUIREMENT)) maximum = Math.max(maximum, Number(match[1]) || YEAR_WORDS[String(match[1]).toLowerCase()] || 0);
   return maximum;
 }
