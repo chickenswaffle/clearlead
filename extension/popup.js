@@ -40,10 +40,14 @@ async function fillCurrentPage() {
     if (!response.ok) throw new Error(pack.error || `ClearLead returned HTTP ${response.status}.`);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error("No active application tab is available.");
+    const inspection = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+    if (!inspection || inspection.inspectionError) throw new Error(inspection?.inspectionError || "Reload the application page and try again.");
+    if (inspection.phase === "complete") throw new Error("This application already appears complete.");
+    if (inspection.phase !== "application") throw new Error("Open the employer's application form before filling fields.");
     const report = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_FILL_SAFE_FIELDS", pack });
     if (!report) throw new Error("Reload the application page and try again.");
     if (report.blockedPage) throw new Error(report.blockedPage);
-    show(`${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. Nothing was submitted.`);
+    show(`${String(report.atsFamily || inspection.atsFamily || "generic").toUpperCase()} · ${report.filled} safe fields filled · ${report.review} need review · ${report.blocked} sensitive fields blocked · ${report.manual} manual fields. Nothing was submitted.`);
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }

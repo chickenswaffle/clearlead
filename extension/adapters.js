@@ -21,6 +21,31 @@
     return match?.profileKey || "";
   }
 
+  function inspectPage(documentRef, pageUrl) {
+    const detected = detect(pageUrl);
+    const fields = [...documentRef.querySelectorAll("input:not([type='hidden']), select, textarea")]
+      .filter((field) => !field.disabled);
+    const pageText = String(documentRef.body?.innerText || "").replace(/\s+/g, " ").slice(0, 20_000);
+    const complete = /\b(?:application (?:has been )?(?:submitted|received)|thank you for applying|thanks for applying)\b/i.test(pageText);
+    const submitControls = [...documentRef.querySelectorAll("button, input[type='submit']")]
+      .filter((control) => /\b(?:submit application|apply|send application)\b/i.test(controlLabel(control)));
+    const profileKeys = fields.map((field) => profileKeyFor(detected.id, fieldDescriptor(field))).filter(Boolean);
+    const fileFields = fields.filter((field) => String(field.type || "").toLowerCase() === "file");
+    const requiredFields = fields.filter((field) => field.required || field.getAttribute?.("aria-required") === "true");
+    return {
+      atsFamily: detected.id,
+      supported: detected.id !== "generic",
+      phase: complete ? "complete" : fields.length ? "application" : "posting",
+      fieldCount: fields.length,
+      requiredCount: requiredFields.length,
+      recognizedProfileFields: [...new Set(profileKeys)],
+      fileFieldCount: fileFields.length,
+      submitControlCount: submitControls.length,
+      canRunSafeFill: detected.capabilities.safeFieldFill && fields.length > 0 && !complete,
+      requiresManualResume: fileFields.length > 0,
+    };
+  }
+
   function adapter(id, hosts, fields, capabilities) {
     return { id, hosts, fields, capabilities: { safeFieldFill: true, finalSubmit: false, ...capabilities } };
   }
@@ -35,11 +60,18 @@
 
   scope.ClearLeadAdapters = Object.freeze({
     detect,
+    inspectPage,
     profileKeyFor,
     supported: Object.freeze(definitions.map(publicDefinition)),
   });
 
   function fields(entries) { return entries.map(([pattern, profileKey]) => ({ pattern, profileKey })); }
+  function fieldDescriptor(field) {
+    return [field.name, field.id, field.autocomplete, field.getAttribute?.("aria-label"), field.getAttribute?.("placeholder")].filter(Boolean).join(" ");
+  }
+  function controlLabel(control) {
+    return [control.textContent, control.value, control.getAttribute?.("aria-label"), control.getAttribute?.("title")].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  }
   function sharedFields() { return fields([
     [/linkedin/i, "linkedinUrl"], [/github/i, "githubUrl"], [/(?:portfolio|personal.?website|personal.?url)/i, "portfolioUrl"],
   ]); }

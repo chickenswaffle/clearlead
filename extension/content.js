@@ -10,7 +10,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try { sendResponse(captureVerificationEvidence()); }
     catch (error) { sendResponse({ captureError: error.message }); }
   }
+  if (message?.type === "CLEARLEAD_INSPECT_APPLICATION") {
+    try { sendResponse(inspectApplicationPage()); }
+    catch (error) { sendResponse({ inspectionError: error.message }); }
+  }
 });
+
+function inspectApplicationPage() {
+  const pageUrl = new URL(location.href);
+  if (pageUrl.protocol !== "https:" || privateHostname(pageUrl.hostname)) throw new Error("Open the public HTTPS application page, then inspect it again.");
+  return globalThis.ClearLeadAdapters?.inspectPage?.(document, pageUrl.toString()) || { atsFamily: "generic", supported: false, phase: "posting", fieldCount: 0, canRunSafeFill: false };
+}
 
 function captureVerificationEvidence() {
   const pageUrl = new URL(location.href);
@@ -68,7 +78,11 @@ function fillSafeFields(pack) {
   if (!Array.isArray(pack?.allowedPages) || !pack.allowedPages.includes(currentPage)) {
     return { filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: `This page does not exactly match the verified application page. Open the prepared URL from ClearLead.` };
   }
-  const report = { filled: 0, review: 0, blocked: 0, manual: 0 };
+  const inspection = inspectApplicationPage();
+  if (inspection.phase !== "application") {
+    return { filled: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, blockedPage: inspection.phase === "complete" ? "This application already appears complete." : "Open the employer's application form before filling fields." };
+  }
+  const report = { filled: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, truthFingerprint: String(pack?.truth?.fingerprint || "") };
   const ats = globalThis.ClearLeadAdapters?.detect?.(location.href) || { id: "generic" };
   const fields = [...document.querySelectorAll("input:not([type='hidden']), select, textarea")].filter(visible);
   for (const field of fields) {

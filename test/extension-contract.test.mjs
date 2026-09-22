@@ -45,6 +45,29 @@ test("ATS registry detects the first supported application families", () => {
   assert.equal(context.ClearLeadAdapters.profileKeyFor("smartrecruiters", "phoneNumber"), "phone");
 });
 
+test("Greenhouse reader returns a compact application plan without field values", () => {
+  const context = { URL };
+  vm.runInNewContext(adapters, context);
+  const field = (name, type = "text", required = false) => ({ name, id: "", type, required, disabled: false, autocomplete: "", getAttribute() { return ""; } });
+  const fields = [field("job_application[first_name]", "text", true), field("job_application[email]", "email", true), field("resume", "file", true)];
+  const submit = { textContent: "Submit Application", value: "", getAttribute() { return ""; } };
+  const documentRef = {
+    body: { innerText: "Apply for this role" },
+    querySelectorAll(selector) {
+      if (selector === "input:not([type='hidden']), select, textarea") return fields;
+      if (selector === "button, input[type='submit']") return [submit];
+      return [];
+    },
+  };
+  const inspection = JSON.parse(JSON.stringify(context.ClearLeadAdapters.inspectPage(documentRef, "https://boards.greenhouse.io/acme/jobs/7")));
+  assert.deepEqual(inspection, {
+    atsFamily: "greenhouse", supported: true, phase: "application", fieldCount: 3, requiredCount: 3,
+    recognizedProfileFields: ["firstName", "email"], fileFieldCount: 1, submitControlCount: 1,
+    canRunSafeFill: true, requiresManualResume: true,
+  });
+  assert.doesNotMatch(JSON.stringify(inspection), /field values|candidate@example/i);
+});
+
 test("extension only fetches the paired localhost pack", () => {
   assert.match(popup, /http:\/\/127\.0\.0\.1:4173/);
   assert.match(popup, /authorization: `Bearer/);
@@ -132,7 +155,13 @@ test("runtime safe-fill changes only fields and never activates a submission pat
   };
   const context = {
     chrome: { runtime: { onMessage: { addListener() {} } } },
-    location: { origin: "https://apply.example.com", pathname: "/form", search: "?job=7" },
+    ClearLeadAdapters: {
+      detect: () => ({ id: "greenhouse" }),
+      inspectPage: () => ({ atsFamily: "greenhouse", phase: "application", canRunSafeFill: true }),
+      profileKeyFor: () => "email",
+    },
+    location: { href: "https://apply.example.com/form?job=7", origin: "https://apply.example.com", pathname: "/form", search: "?job=7" },
+    URL,
     document: { querySelectorAll(selector) { return selector.startsWith("label[") ? [] : [field]; } },
     CSS: { escape: (value) => value },
     Event: class { constructor(type) { this.type = type; } },
@@ -141,8 +170,10 @@ test("runtime safe-fill changes only fields and never activates a submission pat
     button,
   };
   vm.runInNewContext(`${content}\n;globalThis.__fill = fillSafeFields;`, context);
-  const report = context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" } });
+  const report = context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" }, truth: { fingerprint: "abc123" } });
   assert.equal(report.filled, 1);
+  assert.equal(report.atsFamily, "greenhouse");
+  assert.equal(report.truthFingerprint, "abc123");
   assert.equal(field.value, "taylor@example.com");
   assert.deepEqual(calls.fieldEvents, []);
   assert.deepEqual({ submit: calls.submit, requestSubmit: calls.requestSubmit, click: calls.click, fetch: calls.fetch, submitEvent: calls.submitEvent }, { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0 });
