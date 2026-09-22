@@ -35,6 +35,23 @@ export function recordApplicationRunReport(run, input, now = new Date().toISOStr
   };
 }
 
+export function resumeApplicationRun(run, pack, now = new Date().toISOString()) {
+  if (!run || !STATUSES.has(run.status)) throw new Error("That application run is unavailable. Prepare the job again.");
+  if (run.status === "complete") throw new Error("That application is already complete and cannot be resumed.");
+  const refreshed = createApplicationRun(pack);
+  return {
+    ...run,
+    status: "in_progress",
+    updatedAt: now,
+    completedAt: null,
+    job: refreshed.job,
+    resume: refreshed.resume,
+    truth: refreshed.truth,
+    allowedPages: refreshed.allowedPages,
+    events: [...(run.events || []), { type: "resumed", at: now }].slice(-100),
+  };
+}
+
 export function sanitizeApplicationReport(input = {}) {
   const inspection = input.inspection && typeof input.inspection === "object" ? input.inspection : {};
   const fill = input.fill && typeof input.fill === "object" ? input.fill : null;
@@ -96,7 +113,9 @@ function sameAllowedApplication(allowedPages, pageUrl) {
 }
 
 function compactJob(job = {}) {
-  return Object.fromEntries(["title", "company", "location", "source", "applicationUrl"].map((key) => [key, String(job[key] || "").slice(0, key === "applicationUrl" ? 2_000 : 180)]));
+  const result = Object.fromEntries(["title", "company", "location", "source", "url", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
+  result.httpStatus = count(job.httpStatus);
+  return result;
 }
 
 function compactResume(resume = {}) {

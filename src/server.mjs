@@ -115,6 +115,7 @@ export function createAppServer({
       const tailoredPdfRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/pdf$/i);
       const tailoredDefaultRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/default$/i);
       const kitResumePdfRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/pdf$/i);
+      const resumeApplicationRoute = url.pathname.match(/^\/api\/application\/runs\/([a-f0-9-]{36})\/resume$/i);
       if (req.method === "GET" && tailoredPdfRoute) {
         const item = store.tailoredFile(tailoredPdfRoute[1]);
         if (!item) return json(res, 404, { error: "Tailored draft not found." });
@@ -192,6 +193,28 @@ export function createAppServer({
       if (req.method === "GET" && url.pathname === "/api/application-profile") {
         const applicationProfile = store.applicationProfile();
         return json(res, 200, { applicationProfile, readiness: applicationProfileReadiness(applicationProfile) });
+      }
+      if (req.method === "POST" && resumeApplicationRoute) {
+        const run = store.applicationRun(resumeApplicationRoute[1]);
+        if (!run) return json(res, 404, { error: "That application run is unavailable. Prepare the job again." });
+        if (run.status === "complete") throw new Error("That application is already complete and cannot be resumed.");
+        const applicationUrl = run.job?.applicationUrl;
+        if (!applicationUrl) throw new Error("This older application run has no verified application URL. Verify the role again.");
+        const verification = normalizeVerification(await verifyFn(applicationUrl), applicationUrl);
+        if (verification.status !== "live") throw new Error(`The employer page could not be revalidated: ${verification.reason || verification.status}. Verify the role again before continuing.`);
+        const applicationProfile = store.applicationProfile();
+        const readiness = applicationProfileReadiness(applicationProfile);
+        if (!readiness.ready) throw new Error(readiness.message);
+        const resumeDraft = restoreApplicationResume(store, run);
+        currentAutofillPack = createAutofillPack({
+          verified: { job: run.job, lead: { ...verification, title: run.job.title, company: run.job.company, location: run.job.location, source: run.job.source } },
+          applicationProfile,
+          resumeDraft,
+          candidateTruth: store.candidateTruth(),
+          runId: run.id,
+        });
+        const resumed = store.resumeApplicationRun(run.id, currentAutofillPack);
+        return json(res, 200, { ...publicAutofillPack(currentAutofillPack), run: resumed });
       }
       if (req.method === "GET" && url.pathname === "/api/browser-verification") {
         if (!latestBrowserVerification || latestBrowserVerification.expiresAt <= Date.now()) {
@@ -541,7 +564,7 @@ function validPackCapability(req, pack, origin) {
   const expectedBuffer = Buffer.from(expected, "hex");
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
-function createAutofillPack({ verified, applicationProfile, resumeDraft = null, candidateTruth = null }) {
+function createAutofillPack({ verified, applicationProfile, resumeDraft = null, candidateTruth = null, runId = null }) {
   const job = { ...verified.job, ...verified.lead };
   const verifiedUrl = new URL(verified.lead.finalUrl || verified.lead.url);
   if (verifiedUrl.protocol !== "https:") throw new Error("Autofill requires a verified HTTPS application page.");
@@ -553,16 +576,24 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     "linkedinUrl", "githubUrl", "portfolioUrl",
   ].map((key) => [key, applicationProfile[key] || ""]));
   return {
-    id: randomUUID(),
+    id: runId || randomUUID(),
     preparedAt: new Date().toISOString(),
     expiresAt: Date.now() + 10 * 60 * 1000,
-    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, reason: job.reason },
+    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
     allowedPages,
     resume: resumeDraft,
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
     policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links"], review: ["work authorization", "sponsorship", "salary", "relocation", "free-text answers", "checkboxes", "radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "legal attestations"] },
   };
+}
+function restoreApplicationResume(store, run) {
+  const saved = run.resume;
+  if (!saved) return null;
+  const item = saved.draftId ? store.tailoredFile(saved.draftId) : saved.kitId ? store.applicationKitFile(saved.kitId, "resume") : null;
+  if (!item) throw new Error("The selected resume for this application is no longer available. Verify the role and select a resume again.");
+  if (!sameJobUrl(item.jobUrl, run.job.applicationUrl)) throw new Error("The selected resume no longer matches this application. Verify the role and build a new tailored resume.");
+  return { ...saved };
 }
 function publicAutofillPack(pack) {
   return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, policy: pack.policy };

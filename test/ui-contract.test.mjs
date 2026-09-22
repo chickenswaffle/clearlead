@@ -62,3 +62,9 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(html, /Verify top matches/);
   assert.match(script, /Tailoring is available for roles found through ranked search/);
 });
+
+test("unfinished application runs expose an actionable restart-safe resume path", () => {
+  assert.match(script, /showRecoverableApplication/);
+  assert.match(script, /Revalidate and resume/);
+  assert.match(script, /\/api\/application\/runs\/\$\{encodeURIComponent\(runId\)\}\/resume/);
+});

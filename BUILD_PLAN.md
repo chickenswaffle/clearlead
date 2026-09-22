@@ -15,7 +15,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [ ] Claim-preserving resume rewrite audit and DOCX output
 - [ ] Workday and SmartRecruiters multi-page runners
 - [x] Persistent application run log with final-review and completion evidence
-- [ ] Restart-safe resume/retry controls and single final approval UX
+- [x] Restart-safe resume/retry controls and single final approval UX
 
 ## Release contract
 

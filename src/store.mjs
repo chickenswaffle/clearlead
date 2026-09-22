@@ -5,7 +5,7 @@ import { normalizeSearchConfig } from "./search.mjs";
 import { normalizeResume } from "./resume.mjs";
 import { normalizeApplicationProfile } from "./application-profile.mjs";
 import { buildCandidateTruth } from "./candidate-truth.mjs";
-import { createApplicationRun, publicApplicationRun, recordApplicationRunReport } from "./application-run.mjs";
+import { createApplicationRun, publicApplicationRun, recordApplicationRunReport, resumeApplicationRun } from "./application-run.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
@@ -97,6 +97,10 @@ export function createStore(dataDir) {
     applicationRuns() {
       return read(applicationRunsPath, []).map(publicApplicationRun);
     },
+    applicationRun(id) {
+      if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
+      return read(applicationRunsPath, []).find((item) => item.id === id) || null;
+    },
     startApplicationRun(pack) {
       const runs = read(applicationRunsPath, []);
       const run = createApplicationRun(pack);
@@ -108,6 +112,14 @@ export function createStore(dataDir) {
       const index = runs.findIndex((item) => item.id === id);
       if (index < 0) throw new Error("That application run is unavailable. Prepare the job again.");
       runs[index] = recordApplicationRunReport(runs[index], report);
+      write(applicationRunsPath, runs);
+      return publicApplicationRun(runs[index]);
+    },
+    resumeApplicationRun(id, pack) {
+      const runs = read(applicationRunsPath, []);
+      const index = runs.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error("That application run is unavailable. Prepare the job again.");
+      runs[index] = resumeApplicationRun(runs[index], pack);
       write(applicationRunsPath, runs);
       return publicApplicationRun(runs[index]);
     },

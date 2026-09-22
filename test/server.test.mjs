@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAppServer } from "../src/server.mjs";
+import { createStore } from "../src/store.mjs";
 
 test("profile, discovery, verification, and review queue work through the real API", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-api-"));
@@ -245,6 +246,36 @@ test("a total source outage does not establish a false new-role baseline", async
   assert.equal(recovered.outage, false);
   assert.equal(recovered.newCount, 0);
   assert.equal(recovered.jobs[0].isNew, false);
+});
+
+test("an unfinished application run can be revalidated and resumed after restart", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-resume-run-"));
+  const runId = "11111111-1111-4111-8111-111111111111";
+  const applicationUrl = "https://boards.greenhouse.io/acme/jobs/7";
+  const store = createStore(dataDir);
+  store.saveApplicationProfile({ fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567" });
+  store.startApplicationRun({
+    id: runId,
+    job: { title: "Support Engineer", company: "Acme", source: "greenhouse", applicationUrl, finalUrl: applicationUrl, checkedAt: "2026-09-22T10:00:00.000Z", httpStatus: 200, reason: "Prior live evidence." },
+    resume: null,
+    truth: null,
+    allowedPages: [applicationUrl],
+  });
+  const verifyFn = async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Fresh application-page evidence.", checkedAt: "2026-09-22T11:00:00.000Z" });
+  const server = createAppServer({ dataDir, verifyFn });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(async () => {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const resumed = await postJson(`${base}/api/application/runs/${runId}/resume`, {});
+  assert.equal(resumed.id, runId);
+  assert.equal(resumed.run.status, "in_progress");
+  assert.equal(resumed.job.reason, "Fresh application-page evidence.");
+  const state = await getJson(`${base}/api/leads`);
+  assert.equal(state.autofillPack.id, runId);
+  assert.equal(state.applicationRuns[0].lastEvent.type, "resumed");
 });
 
 test("AI provider setup and application kits require consent and keep credentials private", async (context) => {

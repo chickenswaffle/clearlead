@@ -598,10 +598,7 @@ async function prepareAutofill(verificationId, button, resumeDraft = null) {
   try {
     const resumeSelection = resumeDraft ? {...(resumeDraft.kitId ? {kitId: resumeDraft.kitId} : {draftId: resumeDraft.id}), filename: resumeDraft.filename} : {};
     const pack = await requestJson('/api/application/prepare', {method: 'POST', body: JSON.stringify({verificationId, ...resumeSelection})});
-    const resumeHandoff = pack.resume ? `<div class="application-resume"><div><strong>Selected resume</strong><span>${escape(pack.resume.filename)}</span></div><a class="button ghost" href="${escape(pack.resume.pdfUrl)}">Download selected PDF</a></div>` : '<p class="quiet">No tailored resume is attached to this handoff. Choose and upload a resume on the employer page.</p>';
-    autofillOutput.className = 'tailor-output active';
-    autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">application handoff ready</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Run ${escape(pack.run.id.slice(0, 8))} is saved locally. Download the selected PDF, open that exact verified page, and upload it when the employer asks. Then click <strong>Fill safe fields</strong> in the paired ClearLead extension. Review every answer yourself and use <strong>Check application status</strong> before making the final Submit click.</p>`;
-    autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
+    showAutofillPack(pack, {scroll: true});
     if (label) label.textContent = 'Application handoff ready'; else button.textContent = 'Application ready';
     if (detail) detail.textContent = 'Download the PDF and open the employer flow below';
   } catch (error) {
@@ -610,6 +607,40 @@ async function prepareAutofill(verificationId, button, resumeDraft = null) {
     button.disabled = false;
     if (label) label.textContent = 'Retry application handoff'; else button.textContent = 'Retry autofill';
     if (detail) detail.textContent = 'Nothing was sent';
+  }
+}
+
+function showAutofillPack(pack, {scroll = false, resumed = false} = {}) {
+  const resumeHandoff = pack.resume ? `<div class="application-resume"><div><strong>Selected resume</strong><span>${escape(pack.resume.filename)}</span></div><a class="button ghost" href="${escape(pack.resume.pdfUrl)}">Download selected PDF</a></div>` : '<p class="quiet">No tailored resume is attached to this handoff. Choose and upload a resume on the employer page.</p>';
+  autofillOutput.className = 'tailor-output active';
+  autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">${resumed ? 'application run resumed' : 'application handoff ready'}</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Run ${escape(pack.run.id.slice(0, 8))} is saved locally. Open that exact verified page, use <strong>Fill safe fields</strong>, review every answer, and use <strong>Check application status</strong> before making the final Submit click.</p>`;
+  if (scroll) autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function showRecoverableApplication(data) {
+  const runs = data.applicationRuns || [];
+  if (data.autofillPack) {
+    const run = runs.find((item) => item.id === data.autofillPack.id);
+    if (run) showAutofillPack({...data.autofillPack, run});
+    return;
+  }
+  const run = runs.find((item) => item.status !== 'complete');
+  if (!run) return;
+  autofillOutput.className = 'tailor-output active';
+  autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">saved application run</p><h3>${escape(run.job.company)} · ${escape(run.job.title)}</h3></div><button class="button primary" data-resume-run="${escape(run.id)}">Revalidate and resume</button></div><p class="quiet">Last state: ${escape(run.status.replaceAll('_', ' '))}. ClearLead will recheck the employer page before reissuing this run to the extension.</p>`;
+  autofillOutput.querySelector('[data-resume-run]').addEventListener('click', (event) => resumeSavedApplication(run.id, event.currentTarget));
+}
+
+async function resumeSavedApplication(runId, button) {
+  button.disabled = true;
+  button.textContent = 'Revalidating employer page…';
+  try {
+    const pack = await requestJson(`/api/application/runs/${encodeURIComponent(runId)}/resume`, {method: 'POST', body: '{}'});
+    showAutofillPack(pack, {scroll: true, resumed: true});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Retry revalidation';
+    autofillOutput.insertAdjacentHTML('beforeend', `<p class="quiet"><strong>${escape(error.message)}</strong></p>`);
   }
 }
 
@@ -694,6 +725,7 @@ async function loadState({autoSearch = true} = {}) {
     document.querySelector('#extension-status').textContent = data.extensionPaired ? 'Extension pairing exists.' : 'Extension not paired.';
     showSearchConfig(data.searchConfig);
     renderQueue(data.leads);
+    showRecoverableApplication(data);
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
     const hasPreviousSearch = Boolean(data.searchStatus.lastRunAt);
     if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch && document.querySelector('#smart-search').value.trim()) searchJobs({silent: true});

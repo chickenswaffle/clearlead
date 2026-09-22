@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createApplicationRun, recordApplicationRunReport, sanitizeApplicationReport } from "../src/application-run.mjs";
+import { createApplicationRun, recordApplicationRunReport, resumeApplicationRun, sanitizeApplicationReport } from "../src/application-run.mjs";
 
 const pack = {
   id: "run-7",
@@ -54,4 +54,16 @@ test("application reports are bounded and cannot cross prepared jobs", () => {
   assert.throws(() => recordApplicationRunReport(createApplicationRun(pack), {
     pageUrl: "https://jobs.evil.example/apply", inspection: { phase: "application" },
   }), /does not belong/);
+});
+
+test("resuming keeps the durable run id and history while requiring fresh inspection", () => {
+  const prepared = createApplicationRun(pack);
+  const ready = recordApplicationRunReport(prepared, {
+    pageUrl: pack.allowedPages[0], inspection: { phase: "application", emptyRequiredCount: 0, submitControlCount: 1 },
+  });
+  const resumed = resumeApplicationRun(ready, { ...pack, job: { ...pack.job, checkedAt: "2026-09-22T11:00:00.000Z", httpStatus: 200 } }, "2026-09-22T11:00:01.000Z");
+  assert.equal(resumed.id, ready.id);
+  assert.equal(resumed.status, "in_progress");
+  assert.equal(resumed.events.at(-1).type, "resumed");
+  assert.equal(resumed.job.httpStatus, 200);
 });
