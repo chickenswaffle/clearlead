@@ -20,6 +20,7 @@ import { applicationProfileReadiness } from "./application-profile.mjs";
 import { createSearchPlan } from "./search-plan.mjs";
 import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
 import { browserVerificationFromEvidence } from "./browser-verification.mjs";
+import { candidateTruthSummary } from "./candidate-truth.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -178,6 +179,7 @@ export function createAppServer({
           searchConfig: store.searchConfig(),
           searchStatus: store.searchStatus(),
           applicationProfile,
+          candidateTruth: candidateTruthSummary(store.candidateTruth()),
           applicationReadiness: applicationProfileReadiness(applicationProfile),
           extensionPaired: activePairing(store.extensionPairing()),
           autofillPack: currentAutofillPack ? publicAutofillPack(currentAutofillPack) : null,
@@ -393,7 +395,7 @@ export function createAppServer({
             pdfUrl: `/api/kits/${kitId}/resume/pdf?name=${encodeURIComponent(downloadFilename(filename, tailored.filename, "pdf").replace(/\.pdf$/i, ""))}`,
           };
         }
-        currentAutofillPack = createAutofillPack({ verified, applicationProfile, resumeDraft });
+        currentAutofillPack = createAutofillPack({ verified, applicationProfile, resumeDraft, candidateTruth: store.candidateTruth() });
         return json(res, 200, publicAutofillPack(currentAutofillPack));
       }
       if (req.method === "GET" && url.pathname === "/api/extension/session") {
@@ -529,7 +531,7 @@ function validPackCapability(req, pack, origin) {
   const expectedBuffer = Buffer.from(expected, "hex");
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
-function createAutofillPack({ verified, applicationProfile, resumeDraft = null }) {
+function createAutofillPack({ verified, applicationProfile, resumeDraft = null, candidateTruth = null }) {
   const job = { ...verified.job, ...verified.lead };
   const verifiedUrl = new URL(verified.lead.finalUrl || verified.lead.url);
   if (verifiedUrl.protocol !== "https:") throw new Error("Autofill requires a verified HTTPS application page.");
@@ -547,12 +549,13 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null }
     job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, reason: job.reason },
     allowedPages,
     resume: resumeDraft,
+    truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
     policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links"], review: ["work authorization", "sponsorship", "salary", "relocation", "free-text answers", "checkboxes", "radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "legal attestations"] },
   };
 }
 function publicAutofillPack(pack) {
-  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, allowedPages: pack.allowedPages, policy: pack.policy };
+  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, policy: pack.policy };
 }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
 function rememberDiscovered(cache, jobs) {

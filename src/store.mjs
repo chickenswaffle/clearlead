@@ -4,6 +4,7 @@ import { normalizeProfile } from "./profile.mjs";
 import { normalizeSearchConfig } from "./search.mjs";
 import { normalizeResume } from "./resume.mjs";
 import { normalizeApplicationProfile } from "./application-profile.mjs";
+import { buildCandidateTruth } from "./candidate-truth.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
@@ -80,6 +81,10 @@ export function createStore(dataDir) {
     profile: () => normalizeProfile(read(profilePath, {})),
     saveProfile: (profile) => write(profilePath, normalizeProfile(profile)),
     applicationProfile: () => normalizeApplicationProfile(read(applicationProfilePath, {})),
+    candidateTruth: () => buildCandidateTruth({
+      resume: read(resumePath, {}),
+      applicationProfile: read(applicationProfilePath, {}),
+    }),
     saveApplicationProfile(profile) {
       const normalized = normalizeApplicationProfile(profile);
       write(applicationProfilePath, normalized);

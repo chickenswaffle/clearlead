@@ -69,10 +69,11 @@ function fillSafeFields(pack) {
     return { filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: `This page does not exactly match the verified application page. Open the prepared URL from ClearLead.` };
   }
   const report = { filled: 0, review: 0, blocked: 0, manual: 0 };
+  const ats = globalThis.ClearLeadAdapters?.detect?.(location.href) || { id: "generic" };
   const fields = [...document.querySelectorAll("input:not([type='hidden']), select, textarea")].filter(visible);
   for (const field of fields) {
     const descriptor = describe(field);
-    const classification = classify(field, descriptor, pack.profile || {});
+    const classification = classify(field, descriptor, pack.profile || {}, ats.id);
     decorate(field, classification.status, classification.reason);
     if (classification.status === "safe" && classification.value) {
       if (hasValue(field)) { decorate(field, "review", "Existing value preserved"); report.review += 1; continue; }
@@ -85,7 +86,7 @@ function fillSafeFields(pack) {
   return report;
 }
 
-function classify(field, descriptor, profile) {
+function classify(field, descriptor, profile, atsFamily = "generic") {
   const type = String(field.type || field.tagName).toLowerCase();
   if (BLOCKED.test(descriptor)) return { status: "blocked", reason: "Sensitive or legal field — ClearLead will not fill it" };
   if (type === "file") return { status: "manual", reason: "Choose the reviewed resume file manually" };
@@ -93,6 +94,8 @@ function classify(field, descriptor, profile) {
   const autocompleteValues = { name: profile.fullName, "given-name": profile.firstName, "family-name": profile.lastName, email: profile.email, tel: profile.phone, "address-level2": profile.city || profile.location, "address-level1": profile.state, "postal-code": profile.postalCode, "country-name": profile.country };
   const autocompleteValue = autocompleteValues[String(field.autocomplete || "").toLowerCase()] || (type === "email" ? profile.email : type === "tel" ? profile.phone : "");
   if (autocompleteValue) return { status: "safe", value: autocompleteValue, reason: "Safe browser-standard profile field" };
+  const adapterKey = globalThis.ClearLeadAdapters?.profileKeyFor?.(atsFamily, descriptor);
+  if (adapterKey && profile[adapterKey]) return { status: "safe", value: profile[adapterKey], reason: `Recognized ${atsFamily} profile field` };
   const mappings = [
     [/first.?name|given.?name/, profile.firstName], [/last.?name|family.?name|surname/, profile.lastName],
     [/full.?name|legal.?name|candidate.?name|^name$/, profile.fullName], [/e-?mail/, profile.email],

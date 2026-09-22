@@ -4,6 +4,18 @@ ClearLead is becoming a high-intent application agent: it should reject jobs tha
 
 This is an execution plan, not a long product rewrite. Each slice must leave the local app usable and must pass the complete test suite.
 
+## Current progress
+
+- [x] Hard eligibility gate with coded rejection reasons
+- [x] Live-search rejection diagnostics
+- [x] Candidate truth schema v1 with immutable metric tokens and answer review boundaries
+- [x] ATS detection and field maps for Workday, Greenhouse, Lever, Ashby, and SmartRecruiters
+- [ ] Greenhouse application-step reader and controlled field runner
+- [ ] Lever and Ashby application-step runners
+- [ ] Claim-preserving resume rewrite audit and DOCX output
+- [ ] Workday and SmartRecruiters multi-page runners
+- [ ] Resumable application log and single final approval
+
 ## Release contract
 
 - Never recommend a role that fails a known hard eligibility rule.
@@ -73,4 +85,3 @@ Exit gate: under 5% clearly ineligible recommendations, at least 85% safe-field 
 - The resume becomes structured candidate truth, not one mutable text blob.
 - Generic DOM autofill becomes tested ATS adapters.
 - “Application handoff” becomes a resumable application run with a single final approval.
-

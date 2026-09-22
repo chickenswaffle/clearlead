@@ -38,6 +38,11 @@ test("ATS registry detects the first supported application families", () => {
   assert.equal(detect("https://careers.example.com/jobs/7").id, "generic");
   assert.equal(context.ClearLeadAdapters.supported.length, 5);
   assert.ok(context.ClearLeadAdapters.supported.every((item) => item.capabilities.finalSubmit === false));
+  assert.equal(context.ClearLeadAdapters.profileKeyFor("workday", "legalNameSection_firstName"), "firstName");
+  assert.equal(context.ClearLeadAdapters.profileKeyFor("greenhouse", "job_application_location"), "location");
+  assert.equal(context.ClearLeadAdapters.profileKeyFor("lever", "urls[LinkedIn]"), "linkedinUrl");
+  assert.equal(context.ClearLeadAdapters.profileKeyFor("ashby", "candidateName"), "fullName");
+  assert.equal(context.ClearLeadAdapters.profileKeyFor("smartrecruiters", "phoneNumber"), "phone");
 });
 
 test("extension only fetches the paired localhost pack", () => {

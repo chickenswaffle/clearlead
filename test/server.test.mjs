@@ -109,6 +109,8 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.doesNotMatch(fs.readFileSync(path.join(dataDir, "extension-pairing.json"), "utf8"), new RegExp(pairing.token));
   const prepared = await postJson(`${base}/api/application/prepare`, { verificationId: check.verificationId });
   assert.equal(prepared.policy.submit, "never");
+  assert.equal(prepared.truth.schema, "clearlead-candidate-truth/v1");
+  assert.equal(prepared.truth.fingerprint.length, 16);
   assert.deepEqual(prepared.allowedPages, [new URL(check.finalUrl).origin + new URL(check.finalUrl).pathname]);
   const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const extensionSessionResponse = await fetch(`${base}/api/extension/session`, { headers: { origin: extensionOrigin, authorization: `Bearer ${pairing.token}` } });
@@ -173,6 +175,9 @@ Staff platform engineer with ten years building distributed systems and reliable
 
   const queue = await getJson(`${base}/api/leads`);
   assert.equal(queue.leads.length, 1);
+  assert.equal(queue.candidateTruth.schema, "clearlead-candidate-truth/v1");
+  assert.equal(queue.candidateTruth.ready, true);
+  assert.ok(queue.candidateTruth.factCount > 0);
   assert.equal(queue.leads[0].source, "greenhouse");
   assert.equal(queue.leads[0].board, "example");
 
