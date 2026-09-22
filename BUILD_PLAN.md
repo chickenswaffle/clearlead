@@ -17,6 +17,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Workday and SmartRecruiters multi-page readers and controlled field runners
 - [x] Persistent application run log with final-review and completion evidence
 - [x] Restart-safe resume/retry controls and single final approval UX
+- [x] One-command dogfood preflight and first-live-application checklist
 
 ## Release contract
 

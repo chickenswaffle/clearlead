@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "doctor": "node src/doctor.mjs",
+    "preflight": "node src/preflight.mjs",
     "test": "node --test test/**/*.test.mjs"
   },
   "dependencies": {
