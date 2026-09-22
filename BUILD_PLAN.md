@@ -6,6 +6,10 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 
 ## Current progress
 
+- [ ] Search-first release: broad-market discovery is the default, with source coverage shown honestly
+- [ ] Search result intelligence: direct-apply preference, application friction, confidence, and fit reasons
+- [ ] Official ZipRecruiter search adapter with explicit rate-limit/error handling
+- [ ] Search-to-tailor-to-application guided path verified end to end
 - [x] Hard eligibility gate with coded rejection reasons
 - [x] Live-search rejection diagnostics
 - [x] Candidate truth schema v1 with immutable metric tokens and answer review boundaries
@@ -29,6 +33,18 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - No application is reported complete without recorded evidence from the employer page.
 
 ## Accelerated sequence
+
+### Now — search-first release
+
+- Make one plain-English search the primary entry point and keep pasted URLs as the fallback.
+- Search broad public/employer-direct sources by default; treat hand-picked ATS boards as optional enrichment.
+- Prefer an employer or ATS application URL when duplicate listings appear on aggregators.
+- Rank on eligibility, role fit, resume evidence, geography, freshness, sector, and application friction.
+- Show why each result ranked, how confident ClearLead is, and whether the application path is direct.
+- Integrate job boards only through supported public/partner interfaces. Indeed and Glassdoor remain visibly partner-gated until credentials/approval exist; do not scrape them or imply coverage.
+- Carry a selected result directly into verification, tailored-resume generation, and the resumable ATS runner.
+
+Exit gate: a candidate can describe a target once, receive a deduplicated ranked pool with honest source health, and take a verified role into the guided application flow without pasting its URL.
 
 ### Day 0–1 — eligibility gate
 
