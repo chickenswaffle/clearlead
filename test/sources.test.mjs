@@ -81,6 +81,8 @@ test("ZipRecruiter public MCP results are normalized without claiming direct app
   assert.deepEqual(request.params.arguments, {});
   assert.equal(result.jobs[0].company, "Hospital One");
   assert.equal(result.jobs[0].source, "ziprecruiter");
+  assert.equal(result.queryMode, "supplemental-unfiltered");
+  assert.match(result.note, /does not accept this search query/i);
 });
 
 test("ZipRecruiter rate limits remain explicit and non-fatal", async () => {

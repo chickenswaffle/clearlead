@@ -54,7 +54,14 @@ export async function discoverZipRecruiter(options = {}) {
     const rows = findJobRows(payload?.result);
     const seen = new Set();
     const jobs = rows.map(normalizeZipJob).filter((job) => isHttpUrl(job.url) && !seen.has(job.url) && seen.add(job.url));
-    return { source: "ziprecruiter", board: "public-mcp", jobs, error: null, note: "ZipRecruiter public MCP currently returns a small local sample; ClearLead filters and ranks it against this search." };
+    return {
+      source: "ziprecruiter",
+      board: "public-mcp",
+      jobs,
+      error: null,
+      queryMode: "supplemental-unfiltered",
+      note: "Supplemental unfiltered sample: ZipRecruiter's public MCP does not accept this search query, so ClearLead filters and ranks its small result page locally.",
+    };
   } catch (error) {
     return { source: "ziprecruiter", board: "public-mcp", jobs: [], error: error?.name === "AbortError" ? "ZipRecruiter timed out. Retry this source." : "Could not reach ZipRecruiter from this machine. Retry this source." };
   } finally {

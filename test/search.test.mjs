@@ -50,6 +50,20 @@ test("multi-board search filters, deduplicates, scores, and reports source failu
   assert.equal(result.funnel.fitSkipped, 0);
 });
 
+test("source diagnostics distinguish query-aligned feeds from supplemental unfiltered samples", async () => {
+  const result = await searchPublishedRoles({ broadFeeds: ["jobledger", "ziprecruiter"], query: "support" }, {
+    discoverSourceFn: async (source) => ({
+      jobs: [],
+      error: null,
+      queryMode: source.type === "ziprecruiter" ? "supplemental-unfiltered" : undefined,
+      note: source.type === "ziprecruiter" ? "Filtered locally." : "",
+    }),
+    now: () => new Date("2026-09-22T12:00:00Z"),
+  });
+  assert.equal(result.sources.find((source) => source.type === "jobledger").queryMode, "query-aligned");
+  assert.equal(result.sources.find((source) => source.type === "ziprecruiter").queryMode, "supplemental-unfiltered");
+});
+
 test("search supports comma-separated role and location alternatives", async () => {
   const discoverFn = async () => ({ error: null, jobs: [
     { title: "Head of Applied AI", location: "New York, NY", url: "https://jobs.example/ai" },

@@ -66,6 +66,7 @@ export async function searchPublishedRoles(input, {
       name: spec.name,
       ok: !result.error,
       cached: Boolean(result.cached),
+      queryMode: result.queryMode || "query-aligned",
       note: result.note || "",
       error: result.error,
       jobs: result.jobs || [],
@@ -166,7 +167,7 @@ function allowedFeeds(value) {
 function providerAccess(config) {
   const enabled = new Set(config.broadFeeds);
   return [
-    { id: "ziprecruiter", name: "ZipRecruiter", status: enabled.has("ziprecruiter") ? "enabled" : "available", detail: "Official public MCP · small result pages · no sign-in" },
+    { id: "ziprecruiter", name: "ZipRecruiter", status: enabled.has("ziprecruiter") ? "enabled" : "available", detail: "Official public MCP · supplemental unfiltered sample · locally filtered and ranked" },
     { id: "indeed", name: "Indeed", status: "partner-required", detail: "Official search access requires publisher-partner approval and an HTTPS placement" },
     { id: "glassdoor", name: "Glassdoor", status: "partner-required", detail: "Official API access is restricted to approved integrations" },
   ];
