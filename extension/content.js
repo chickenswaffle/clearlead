@@ -147,6 +147,8 @@ function setNativeValue(field, value) {
   if (prototypeSetter && ownSetter !== prototypeSetter) prototypeSetter.call(field, value);
   else if (ownSetter) ownSetter.call(field, value);
   else field.value = value;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  field.dispatchEvent(new Event("change", { bubbles: true }));
 }
 function decorate(field, status, reason) {
   const colors = { safe: "#49f29b", review: "#f4c95d", blocked: "#ff6b82", manual: "#55c7ff" };

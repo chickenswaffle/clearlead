@@ -11,7 +11,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Candidate truth schema v1 with immutable metric tokens and answer review boundaries
 - [x] ATS detection and field maps for Workday, Greenhouse, Lever, Ashby, and SmartRecruiters
 - [x] Greenhouse application-step reader and controlled field runner
-- [ ] Lever and Ashby application-step runners
+- [x] Lever and Ashby application-step readers and controlled field runners
 - [ ] Claim-preserving resume rewrite audit and DOCX output
 - [ ] Workday and SmartRecruiters multi-page runners
 - [ ] Resumable application log and single final approval

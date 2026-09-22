@@ -21,7 +21,7 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.match(content, /does not exactly match the verified application page/);
   assert.match(content, /emergency\.\?contact/);
   assert.match(content, /Object\.getOwnPropertyDescriptor/);
-  assert.doesNotMatch(content, /dispatchEvent/);
+  assert.doesNotMatch(content, /dispatchEvent\(new Event\(["']submit/);
   assert.deepEqual(manifest.content_scripts[0].js, ["adapters.js", "content.js"]);
   assert.doesNotMatch(adapters, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
 });
@@ -53,6 +53,7 @@ test("Greenhouse reader returns a compact application plan without field values"
   const submit = { textContent: "Submit Application", value: "", getAttribute() { return ""; } };
   const documentRef = {
     body: { innerText: "Apply for this role" },
+    querySelector(selector) { return selector === "#application_form" ? this : null; },
     querySelectorAll(selector) {
       if (selector === "input:not([type='hidden']), select, textarea") return fields;
       if (selector === "button, input[type='submit']") return [submit];
@@ -66,6 +67,26 @@ test("Greenhouse reader returns a compact application plan without field values"
     canRunSafeFill: true, requiresManualResume: true,
   });
   assert.doesNotMatch(JSON.stringify(inspection), /field values|candidate@example/i);
+});
+
+test("Lever and Ashby readers distinguish postings from application forms", () => {
+  const context = { URL };
+  vm.runInNewContext(adapters, context);
+  const field = (name) => ({ name, id: "", type: "text", required: true, disabled: false, autocomplete: "", getAttribute() { return ""; } });
+  const applicationDocument = (rootSelector, names) => {
+    const fields = names.map(field);
+    const root = { querySelectorAll(selector) { return selector.startsWith("input:not") ? fields : []; } };
+    return { body: { innerText: "Application" }, querySelector: (selector) => selector === rootSelector ? root : null, querySelectorAll: () => [] };
+  };
+  const lever = context.ClearLeadAdapters.inspectPage(applicationDocument(".application-form", ["name", "email", "urls[LinkedIn]"]), "https://jobs.lever.co/acme/7/apply");
+  const ashby = context.ClearLeadAdapters.inspectPage(applicationDocument("[data-testid='application-form']", ["candidateName", "email", "location"]), "https://jobs.ashbyhq.com/acme/7/application");
+  const posting = context.ClearLeadAdapters.inspectPage({ body: { innerText: "Job description" }, querySelector: () => null, querySelectorAll: () => [field("search")] }, "https://jobs.lever.co/acme/7");
+  assert.equal(lever.phase, "application");
+  assert.deepEqual(JSON.parse(JSON.stringify(lever.recognizedProfileFields)), ["fullName", "email", "linkedinUrl"]);
+  assert.equal(ashby.phase, "application");
+  assert.deepEqual(JSON.parse(JSON.stringify(ashby.recognizedProfileFields)), ["fullName", "email", "location"]);
+  assert.equal(posting.phase, "posting");
+  assert.equal(posting.fieldCount, 0);
 });
 
 test("extension only fetches the paired localhost pack", () => {
@@ -151,7 +172,7 @@ test("runtime safe-fill changes only fields and never activates a submission pat
     getBoundingClientRect() { return { width: 200, height: 32 }; },
     getAttribute(name) { return name === "name" ? this.name : ""; },
     closest() { return null; },
-    dispatchEvent(event) { calls.fieldEvents.push(event.type); calls.submit += 1; return true; },
+    dispatchEvent(event) { calls.fieldEvents.push(event.type); if (event.type === "submit") calls.submit += 1; return true; },
   };
   const context = {
     chrome: { runtime: { onMessage: { addListener() {} } } },
@@ -175,6 +196,6 @@ test("runtime safe-fill changes only fields and never activates a submission pat
   assert.equal(report.atsFamily, "greenhouse");
   assert.equal(report.truthFingerprint, "abc123");
   assert.equal(field.value, "taylor@example.com");
-  assert.deepEqual(calls.fieldEvents, []);
+  assert.deepEqual(calls.fieldEvents, ["input", "change"]);
   assert.deepEqual({ submit: calls.submit, requestSubmit: calls.requestSubmit, click: calls.click, fetch: calls.fetch, submitEvent: calls.submitEvent }, { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0 });
 });

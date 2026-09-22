@@ -1,10 +1,10 @@
 (function registerClearLeadAdapters(scope) {
   const definitions = [
-    adapter("workday", [/(?:^|\.)myworkdayjobs\.com$/i], workdayFields(), { multiPage: true, resumeAttachment: "manual", applicationState: true }),
-    adapter("greenhouse", [/(?:^|\.)greenhouse\.io$/i, /(?:^|\.)greenhouse\.com$/i], greenhouseFields(), { multiPage: false, resumeAttachment: "manual", applicationState: true }),
-    adapter("lever", [/(?:^|\.)lever\.co$/i], leverFields(), { multiPage: false, resumeAttachment: "manual", applicationState: true }),
-    adapter("ashby", [/(?:^|\.)ashbyhq\.com$/i], ashbyFields(), { multiPage: false, resumeAttachment: "manual", applicationState: true }),
-    adapter("smartrecruiters", [/(?:^|\.)smartrecruiters\.com$/i], smartRecruitersFields(), { multiPage: true, resumeAttachment: "manual", applicationState: true }),
+    adapter("workday", [/(?:^|\.)myworkdayjobs\.com$/i], workdayFields(), ["[data-automation-id='applyFlowPage']", "form"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
+    adapter("greenhouse", [/(?:^|\.)greenhouse\.io$/i, /(?:^|\.)greenhouse\.com$/i], greenhouseFields(), ["#application_form", "form#application-form", "form[action*='applications']"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
+    adapter("lever", [/(?:^|\.)lever\.co$/i], leverFields(), [".application-form", "form[action*='apply']"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
+    adapter("ashby", [/(?:^|\.)ashbyhq\.com$/i], ashbyFields(), ["[data-testid='application-form']", "form"], { multiPage: false, resumeAttachment: "manual", applicationState: true }),
+    adapter("smartrecruiters", [/(?:^|\.)smartrecruiters\.com$/i], smartRecruitersFields(), ["[data-test='application-form']", "form"], { multiPage: true, resumeAttachment: "manual", applicationState: true }),
   ];
 
   function detect(value) {
@@ -23,11 +23,15 @@
 
   function inspectPage(documentRef, pageUrl) {
     const detected = detect(pageUrl);
-    const fields = [...documentRef.querySelectorAll("input:not([type='hidden']), select, textarea")]
+    const definition = definitions.find((item) => item.id === detected.id);
+    const applicationRoot = definition?.applicationRoots.map((selector) => documentRef.querySelector?.(selector)).find(Boolean) || null;
+    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)/i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
+    const fieldRoot = applicationRoot || (applicationPath ? documentRef : null);
+    const fields = [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])]
       .filter((field) => !field.disabled);
     const pageText = String(documentRef.body?.innerText || "").replace(/\s+/g, " ").slice(0, 20_000);
     const complete = /\b(?:application (?:has been )?(?:submitted|received)|thank you for applying|thanks for applying)\b/i.test(pageText);
-    const submitControls = [...documentRef.querySelectorAll("button, input[type='submit']")]
+    const submitControls = [...(fieldRoot?.querySelectorAll("button, input[type='submit']") || [])]
       .filter((control) => /\b(?:submit application|apply|send application)\b/i.test(controlLabel(control)));
     const profileKeys = fields.map((field) => profileKeyFor(detected.id, fieldDescriptor(field))).filter(Boolean);
     const fileFields = fields.filter((field) => String(field.type || "").toLowerCase() === "file");
@@ -46,8 +50,8 @@
     };
   }
 
-  function adapter(id, hosts, fields, capabilities) {
-    return { id, hosts, fields, capabilities: { safeFieldFill: true, finalSubmit: false, ...capabilities } };
+  function adapter(id, hosts, fields, applicationRoots, capabilities) {
+    return { id, hosts, fields, applicationRoots, capabilities: { safeFieldFill: true, finalSubmit: false, ...capabilities } };
   }
 
   function publicDefinition(value) {
