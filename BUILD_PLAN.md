@@ -22,6 +22,21 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Persistent application run log with final-review and completion evidence
 - [x] Restart-safe resume/retry controls and single final approval UX
 - [x] One-command dogfood preflight and first-live-application checklist
+- [x] Typed required/preferred qualification matrix with posting and candidate evidence for experience, education, credentials, authorization, location, schedule, travel, clearance, and recognized skills
+- [x] Search funnel diagnostics and explicit apply/review/skip decisions; missing hard requirements block recommendation
+- [x] Job-bound posting-to-form transitions for Greenhouse, Lever, Ashby, Workday, SmartRecruiters, and same-origin generic forms
+- [x] Full search-to-final-review regression across process restart, with no automatic submission or persisted field values
+- [x] ZipRecruiter labeled as a supplemental unfiltered sample; query-aligned sources identified separately
+
+## Current quality gate — 2026-09-22
+
+- [x] Complete regression suite: 177/177 passing
+- [x] Dogfood preflight: runtime, resume, identity, extension pairing, and three configured public sources ready
+- [x] Live non-applying search smoke test: 158 discovered, 13 actionable, 23 hard-rejected, 57 weak/unsupported fits hidden
+- [x] Local app restarted and HTTP-smoked on the reviewed build
+- [ ] Original independent critic re-review of the current commit
+- [ ] Third MONDO expert judgment of the critic's assessment and current commit
+- [ ] First candidate-controlled application using `FIRST_TEST.md`; candidate makes the final Submit click
 
 ## Release contract
 
