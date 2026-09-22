@@ -161,6 +161,11 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.equal(pdfDownload.headers.get("content-type"), "application/pdf");
   assert.match(pdfDownload.headers.get("content-disposition"), /Platform-Support-Resume\.pdf/);
   assert.equal(Buffer.from(await pdfDownload.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const docxDownload = await fetch(`${base}${draft.docxUrl}?name=Platform%20Support%20Resume`);
+  assert.equal(docxDownload.status, 200);
+  assert.equal(docxDownload.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  assert.match(docxDownload.headers.get("content-disposition"), /Platform-Support-Resume\.docx/);
+  assert.equal(Buffer.from(await docxDownload.arrayBuffer()).subarray(0, 2).toString(), "PK");
   const madeDefault = await postJson(`${base}/api/tailored/${draft.id}/default`, { filename: "Platform Support Resume.md" });
   assert.equal(madeDefault.resume.filename, "Platform-Support-Resume.md");
   assert.match(madeDefault.message, /local default resume/i);
@@ -349,6 +354,10 @@ Platform engineer building reliable Python services.
   assert.equal(aiPdf.status, 200);
   assert.equal(aiPdf.headers.get("content-type"), "application/pdf");
   assert.equal(Buffer.from(await aiPdf.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const aiDocx = await fetch(`${base}${kit.docxUrl}?name=AI%20Platform%20Resume`);
+  assert.equal(aiDocx.status, 200);
+  assert.equal(aiDocx.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  assert.equal(Buffer.from(await aiDocx.arrayBuffer()).subarray(0, 2).toString(), "PK");
   await postJson(`${base}/api/application-profile`, { fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567" });
   const preparedAi = await postJson(`${base}/api/application/prepare`, { verificationId, kitId: kit.id, filename: "AI Platform Resume.pdf" });
   assert.equal(preparedAi.resume.kitId, kit.id);

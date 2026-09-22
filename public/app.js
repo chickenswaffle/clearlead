@@ -438,6 +438,7 @@ function renderResumeStudio(draft, verificationId) {
         <label class="studio-name-label" for="resume-name-${escape(draft.id)}">Resume filename</label>
         <div class="studio-filename"><input id="resume-name-${escape(draft.id)}" value="${escape(suggestedName)}" maxlength="120" autocomplete="off"><b>.pdf</b></div>
         <a class="button primary studio-pdf" data-studio-pdf href="${escape(namedDownloadUrl(draft.pdfUrl, suggestedName))}">Download polished PDF</a>
+        <a class="button ghost" data-studio-docx href="${escape(namedDownloadUrl(draft.docxUrl, suggestedName))}">Download ATS-safe DOCX</a>
         <div class="studio-step"><span>02</span><div><strong>Choose what happens next</strong><p>You stay in control of every destination.</p></div></div>
         <button class="studio-choice" data-studio-default><i>↻</i><span><strong>Save as my default</strong><small>Use this version for future matching</small></span></button>
         <button class="studio-choice featured" data-studio-apply><i>↗</i><span><strong>Use for this application</strong><small>Select this PDF, then open the employer flow</small></span></button>
@@ -461,10 +462,12 @@ function renderResumeStudio(draft, verificationId) {
   const studio = tailorOutput.querySelector('.resume-studio');
   const input = studio.querySelector('.studio-filename input');
   const pdfLink = studio.querySelector('[data-studio-pdf]');
+  const docxLink = studio.querySelector('[data-studio-docx]');
   const markdownLink = studio.querySelector('[data-studio-markdown]');
   const syncNames = () => {
     const name = resumeFileStem(input.value);
     pdfLink.href = namedDownloadUrl(draft.pdfUrl, name);
+    docxLink.href = namedDownloadUrl(draft.docxUrl, name);
     markdownLink.href = namedDownloadUrl(draft.downloadUrl, name);
   };
   input.addEventListener('input', syncNames);
@@ -572,7 +575,7 @@ async function createApplicationKit(verificationId, button, embeddedOutput = nul
     const consent = await requestJson('/api/ai/consent', {method: 'POST', body: JSON.stringify({verificationId})});
     const kit = await requestJson('/api/ai/kit', {method: 'POST', body: JSON.stringify({verificationId, consentId: consent.consentId})});
     const labels = {'resume':'Editable resume', 'fit-report':'Fit report', 'cover-letter':'Cover letter', 'interview-prep':'Interview prep', 'claim-audit':'Claim audit'};
-    const downloads = `<a class="button primary" href="${escape(kit.pdfUrl)}">Download AI resume PDF</a>` + Object.entries(kit.downloads).map(([name, url]) => `<a class="button ghost" href="${escape(url)}">${escape(labels[name] || name)}</a>`).join('');
+    const downloads = `<a class="button primary" href="${escape(kit.pdfUrl)}">Download AI resume PDF</a><a class="button ghost" href="${escape(kit.docxUrl)}">Download AI resume DOCX</a>` + Object.entries(kit.downloads).map(([name, url]) => `<a class="button ghost" href="${escape(url)}">${escape(labels[name] || name)}</a>`).join('');
     output.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">audited application kit ready</p><h3>${escape(providerName(kit.provider))} · ${escape(kit.model)}</h3></div><div class="kit-downloads">${downloads}</div></div>
       <div class="audit-strip"><strong>${kit.audit.accepted}</strong><span>source selections accepted</span><strong>${kit.audit.rejected}</strong><span>model-written claims rejected</span></div>
       <p class="quiet">Priority language: ${escape(kit.matchedTerms.join(', ') || 'none returned')}<br>Gaps kept out of the resume: ${escape(kit.gaps.join(', ') || 'none returned')}</p>

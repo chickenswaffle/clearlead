@@ -13,7 +13,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Greenhouse application-step reader and controlled field runner
 - [x] Lever and Ashby application-step readers and controlled field runners
 - [x] Claim-preserving resume rewrite audit with source-line provenance
-- [ ] ATS-safe DOCX output
+- [x] ATS-safe DOCX output
 - [ ] Workday and SmartRecruiters multi-page runners
 - [x] Persistent application run log with final-review and completion evidence
 - [x] Restart-safe resume/retry controls and single final approval UX

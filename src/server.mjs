@@ -21,6 +21,7 @@ import { createSearchPlan } from "./search-plan.mjs";
 import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
 import { browserVerificationFromEvidence } from "./browser-verification.mjs";
 import { candidateTruthSummary } from "./candidate-truth.mjs";
+import { createResumeDocx, docxMimeType } from "./resume-docx.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createAppServer({
@@ -113,8 +114,10 @@ export function createAppServer({
       if (req.method === "GET" && url.pathname === "/app.js") return sendFile(res, path.join(root, "public", "app.js"), "text/javascript");
       if (req.method === "GET" && url.pathname === "/styles.css") return sendFile(res, path.join(root, "public", "styles.css"), "text/css");
       const tailoredPdfRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/pdf$/i);
+      const tailoredDocxRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/docx$/i);
       const tailoredDefaultRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/default$/i);
       const kitResumePdfRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/pdf$/i);
+      const kitResumeDocxRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/docx$/i);
       const resumeApplicationRoute = url.pathname.match(/^\/api\/application\/runs\/([a-f0-9-]{36})\/resume$/i);
       if (req.method === "GET" && tailoredPdfRoute) {
         const item = store.tailoredFile(tailoredPdfRoute[1]);
@@ -123,6 +126,13 @@ export function createAppServer({
         const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
         const pdf = await createResumePdf(contents, { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
         return sendBufferDownload(res, pdf, filename, "application/pdf");
+      }
+      if (req.method === "GET" && tailoredDocxRoute) {
+        const item = store.tailoredFile(tailoredDocxRoute[1]);
+        if (!item) return json(res, 404, { error: "Tailored draft not found." });
+        const filename = downloadFilename(url.searchParams.get("name"), item.filename, "docx");
+        const document = createResumeDocx(fs.readFileSync(item.file, "utf8"), { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
+        return sendBufferDownload(res, document, filename, docxMimeType());
       }
       if (req.method === "POST" && tailoredDefaultRoute) {
         const request = await body(req);
@@ -160,6 +170,13 @@ export function createAppServer({
         const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
         const pdf = await createResumePdf(fs.readFileSync(item.file, "utf8"), { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
         return sendBufferDownload(res, pdf, filename, "application/pdf");
+      }
+      if (req.method === "GET" && kitResumeDocxRoute) {
+        const item = store.applicationKitFile(kitResumeDocxRoute[1], "resume");
+        if (!item) return json(res, 404, { error: "AI resume draft not found." });
+        const filename = downloadFilename(url.searchParams.get("name"), item.filename, "docx");
+        const document = createResumeDocx(fs.readFileSync(item.file, "utf8"), { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
+        return sendBufferDownload(res, document, filename, docxMimeType());
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/kits/")) {
         const [, , , id, artifact] = url.pathname.split("/");
@@ -281,6 +298,7 @@ export function createAppServer({
           filename: saved.filename,
           downloadUrl: saved.downloadUrl,
           pdfUrl: `/api/tailored/${saved.id}/pdf`,
+          docxUrl: `/api/tailored/${saved.id}/docx`,
           createdAt: saved.createdAt,
           title: saved.title,
           company: saved.company,
@@ -362,6 +380,7 @@ export function createAppServer({
             gaps: saved.gaps,
             audit: saved.audit,
             pdfUrl: `/api/kits/${saved.id}/resume/pdf`,
+            docxUrl: `/api/kits/${saved.id}/resume/docx`,
             downloads: Object.fromEntries(Object.entries(saved.files).map(([name, item]) => [name, item.downloadUrl])),
           });
         } catch (error) {

@@ -34,6 +34,7 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(script, /Make custom resume/);
   assert.match(script, /resume studio \/ grounded/i);
   assert.match(script, /Download polished PDF/);
+  assert.match(script, /Download ATS-safe DOCX/);
   assert.match(script, /Save as my default/);
   assert.match(script, /Use for this application/);
   assert.match(script, /Use this AI version/);
