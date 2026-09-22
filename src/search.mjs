@@ -73,6 +73,7 @@ export async function searchPublishedRoles(input, {
   const queryGroups = config.query.split(",").map(words).filter((group) => group.length > 0);
   const locationGroups = config.location.split(",").map(words).filter((group) => group.length > 0);
   const candidates = [];
+  const rejected = [];
   for (const source of outcomes) {
     for (const job of source.jobs) {
       if (!job.url) continue;
@@ -95,6 +96,10 @@ export async function searchPublishedRoles(input, {
       };
       normalized.match = rankJob(normalized, { resume, profile, query: config.query, location: config.location, plan: input.plan, now: now() });
       normalized.relevance = { score: normalized.match.score, matched: normalized.match.matchedSkills };
+      if (!normalized.match.eligibility.eligible) {
+        rejected.push(normalized);
+        continue;
+      }
       candidates.push(normalized);
     }
   }
@@ -112,10 +117,20 @@ export async function searchPublishedRoles(input, {
     jobs,
     allJobs: matchedJobs,
     matchedCount: matchedJobs.length,
+    rejectedCount: rejected.length,
+    rejectionReasons: rejectionSummary(rejected),
     outage,
     sources: outcomes.map(({ jobs: sourceJobs, ...source }) => ({ ...source, count: sourceJobs.length })),
     searchedAt: now().toISOString(),
   };
+}
+
+function rejectionSummary(jobs) {
+  const counts = new Map();
+  for (const job of jobs) {
+    for (const item of job.match?.eligibility?.reasons || []) counts.set(item.code, (counts.get(item.code) || 0) + 1);
+  }
+  return [...counts.entries()].map(([code, count]) => ({ code, count })).sort((left, right) => right.count - left.count || left.code.localeCompare(right.code));
 }
 
 function tokens(value, fallback, limit) {

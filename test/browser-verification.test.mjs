@@ -9,12 +9,14 @@ test("paired browser capture calls a rendered role live only with complete evide
     pageUrl: "https://jobs.example.com/apply/7#application",
     pageTitle: "Support Technician",
     httpStatus: 200,
+    atsFamily: "lever",
     signals: ["apply action", "responsibilities", "untrusted signal"],
     fullPageText: "must never travel through the boundary",
   }, { job: { source: "jobledger", company: "Acme", title: "Support Technician", url: "https://jobs.example.com/apply/7" }, now });
   assert.equal(result.status, "live");
   assert.equal(result.finalUrl, "https://jobs.example.com/apply/7");
   assert.equal(result.verificationMethod, "paired browser capture");
+  assert.equal(result.atsFamily, "lever");
   assert.equal(result.trustedJobMetadata, true);
   assert.deepEqual(result.signals, ["apply action", "responsibilities"]);
   assert.equal("fullPageText" in result, false);

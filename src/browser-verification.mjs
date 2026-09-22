@@ -1,18 +1,21 @@
 const ALLOWED_SIGNALS = new Set([
   "apply action", "job description", "responsibilities", "qualifications", "job schema", "access challenge", "closed language",
 ]);
+const ATS_FAMILIES = new Set(["workday", "greenhouse", "lever", "ashby", "smartrecruiters", "generic"]);
 
 export function browserVerificationFromEvidence(input = {}, { job = {}, now = () => new Date() } = {}) {
   const pageUrl = safeHttpsUrl(input.pageUrl);
   const checkedAt = now().toISOString();
   const httpStatus = Number.isInteger(input.httpStatus) ? input.httpStatus : 0;
   const signals = [...new Set((Array.isArray(input.signals) ? input.signals : []).filter((signal) => ALLOWED_SIGNALS.has(signal)))];
+  const atsFamily = ATS_FAMILIES.has(input.atsFamily) ? input.atsFamily : "generic";
   const base = {
     url: pageUrl || String(input.pageUrl || "").slice(0, 2_000),
     ...(pageUrl ? { finalUrl: pageUrl } : {}),
     ...(httpStatus ? { httpStatus } : {}),
     checkedAt,
     signals,
+    atsFamily,
     source: text(job.source, 40) || "browser-assisted",
     board: text(job.board, 80),
     title: text(job.title, 180) || text(input.pageTitle, 180),

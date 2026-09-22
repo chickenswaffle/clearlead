@@ -15,6 +15,7 @@ import { createCredentialVault } from "./vault.mjs";
 import { createProviderClient } from "./ai-providers.mjs";
 import { buildApplicationKit } from "./ai-resume.mjs";
 import { extractResumePdf } from "./pdf-resume.mjs";
+import { createResumePdf } from "./resume-pdf.mjs";
 import { applicationProfileReadiness } from "./application-profile.mjs";
 import { createSearchPlan } from "./search-plan.mjs";
 import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
@@ -108,10 +109,53 @@ export function createAppServer({
       if (req.method === "GET" && url.pathname === "/") return sendFile(res, path.join(root, "public", "index.html"), "text/html");
       if (req.method === "GET" && url.pathname === "/app.js") return sendFile(res, path.join(root, "public", "app.js"), "text/javascript");
       if (req.method === "GET" && url.pathname === "/styles.css") return sendFile(res, path.join(root, "public", "styles.css"), "text/css");
-      if (req.method === "GET" && url.pathname.startsWith("/api/tailored/")) {
+      const tailoredPdfRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/pdf$/i);
+      const tailoredDefaultRoute = url.pathname.match(/^\/api\/tailored\/([a-f0-9-]{36})\/default$/i);
+      const kitResumePdfRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/pdf$/i);
+      if (req.method === "GET" && tailoredPdfRoute) {
+        const item = store.tailoredFile(tailoredPdfRoute[1]);
+        if (!item) return json(res, 404, { error: "Tailored draft not found." });
+        const contents = fs.readFileSync(item.file, "utf8");
+        const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
+        const pdf = await createResumePdf(contents, { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
+        return sendBufferDownload(res, pdf, filename, "application/pdf");
+      }
+      if (req.method === "POST" && tailoredDefaultRoute) {
+        const request = await body(req);
+        const item = store.tailoredFile(tailoredDefaultRoute[1]);
+        if (!item) return json(res, 404, { error: "Tailored draft not found." });
+        const filename = downloadFilename(request.filename, item.filename, "md");
+        const savedDefault = store.saveResumeAsDefault({ text: fs.readFileSync(item.file, "utf8"), filename });
+        const resume = savedDefault.resume;
+        return json(res, 200, {
+          ok: true,
+          resume: resumeSummary(resume),
+          readiness: combinedReadiness(store.profile(), resumeSummary(resume)),
+          undoId: savedDefault.undoId,
+          message: `${filename} is now your local default resume. Future searches and tailored drafts will start from it.`,
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/resume/default/restore") {
+        const request = await body(req);
+        const resume = store.restoreResumeBackup(request.undoId);
+        return json(res, 200, {
+          ok: true,
+          resume: resumeSummary(resume),
+          readiness: combinedReadiness(store.profile(), resumeSummary(resume)),
+          message: `${resume.filename} was restored as your default resume.`,
+        });
+      }
+      if (req.method === "GET" && /^\/api\/tailored\/[a-f0-9-]{36}$/i.test(url.pathname)) {
         const item = store.tailoredFile(url.pathname.split("/").pop());
         if (!item) return json(res, 404, { error: "Tailored draft not found." });
-        return sendDownload(res, item.file, item.filename, "text/markdown");
+        return sendDownload(res, item.file, downloadFilename(url.searchParams.get("name"), item.filename, "md"), "text/markdown");
+      }
+      if (req.method === "GET" && kitResumePdfRoute) {
+        const item = store.applicationKitFile(kitResumePdfRoute[1], "resume");
+        if (!item) return json(res, 404, { error: "AI resume draft not found." });
+        const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
+        const pdf = await createResumePdf(fs.readFileSync(item.file, "utf8"), { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
+        return sendBufferDownload(res, pdf, filename, "application/pdf");
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/kits/")) {
         const [, , , id, artifact] = url.pathname.split("/");
@@ -198,21 +242,26 @@ export function createAppServer({
         if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live") {
           throw new Error("Verify this role again before creating a tailored resume draft.");
         }
-        if (verified.used.tailor) throw new Error("This verification already created a tailored draft. Verify again to create another draft.");
+        if (verified.tailoredDraft) return json(res, 200, verified.tailoredDraft);
         if (!verified.job?.title) throw new Error("Tailoring requires a role discovered through the ranked search pool so its source metadata is trusted.");
         const resume = store.resume();
-        const draft = tailorResume(resume.text, { ...verified.job, ...verified.lead, status: "live" });
+        const draft = tailorResume(resume.text, { ...verified.job, ...verified.lead, status: "live" }, { identity: store.applicationProfile() });
         const saved = store.saveTailoredDraft(verified.lead, draft);
         verified.used.tailor = true;
-        return json(res, 200, {
+        verified.tailoredDraft = {
           id: saved.id,
           filename: saved.filename,
           downloadUrl: saved.downloadUrl,
+          pdfUrl: `/api/tailored/${saved.id}/pdf`,
           createdAt: saved.createdAt,
+          title: saved.title,
+          company: saved.company,
           matchedTerms: saved.matchedTerms,
           absentTerms: saved.absentTerms,
-          preview: saved.markdown.slice(0, 12_000),
-        });
+          groundingNotes: saved.groundingNotes,
+          preview: saved.markdown,
+        };
+        return json(res, 200, verified.tailoredDraft);
       }
       if (req.method === "POST" && url.pathname === "/api/ai/provider") {
         const request = await body(req);
@@ -273,7 +322,20 @@ export function createAppServer({
           const saved = store.saveApplicationKit(job, kit);
           consent.state = "used";
           verified.used.aiKit = true;
-          return json(res, 200, { id: saved.id, createdAt: saved.createdAt, provider: secret.provider, model: secret.model, preview: saved.preview, matchedTerms: saved.matchedTerms, gaps: saved.gaps, audit: saved.audit, downloads: Object.fromEntries(Object.entries(saved.files).map(([name, item]) => [name, item.downloadUrl])) });
+          return json(res, 200, {
+            id: saved.id,
+            createdAt: saved.createdAt,
+            title: saved.title,
+            company: saved.company,
+            provider: secret.provider,
+            model: secret.model,
+            preview: saved.preview,
+            matchedTerms: saved.matchedTerms,
+            gaps: saved.gaps,
+            audit: saved.audit,
+            pdfUrl: `/api/kits/${saved.id}/resume/pdf`,
+            downloads: Object.fromEntries(Object.entries(saved.files).map(([name, item]) => [name, item.downloadUrl])),
+          });
         } catch (error) {
           if (consent.state === "in_progress") consent.state = "ready";
           if (verified.used.aiKit === "in_progress") verified.used.aiKit = false;
@@ -303,13 +365,35 @@ export function createAppServer({
         return json(res, 200, { token, pairedAt, expiresAt, extensionPath: path.join(root, "extension"), message: "A new pairing token was created. Any older extension token is now invalid." });
       }
       if (req.method === "POST" && url.pathname === "/api/application/prepare") {
-        const { verificationId } = await body(req);
+        const { verificationId, draftId, kitId, filename } = await body(req);
         const verified = liveVerifications.get(verificationId);
         if (!verified || verified.expiresAt <= Date.now() || verified.lead.status !== "live" || !verified.job?.title) throw new Error("Verify this ranked role again before preparing autofill.");
         const applicationProfile = store.applicationProfile();
         const readiness = applicationProfileReadiness(applicationProfile);
         if (!readiness.ready) throw new Error(readiness.message);
-        currentAutofillPack = createAutofillPack({ verified, applicationProfile });
+        let resumeDraft = null;
+        const verifiedJobUrl = verified.lead.finalUrl || verified.lead.url;
+        if (draftId && kitId) throw new Error("Choose one tailored resume version for this application.");
+        if (draftId) {
+          const tailored = store.tailoredFile(draftId);
+          if (!tailored) throw new Error("The selected tailored resume is no longer available. Build it again before applying.");
+          if (!sameJobUrl(tailored.jobUrl, verifiedJobUrl)) throw new Error("That tailored resume belongs to a different job. Build or select the version for this verified role.");
+          resumeDraft = {
+            draftId,
+            filename: downloadFilename(filename, tailored.filename, "pdf"),
+            pdfUrl: `/api/tailored/${draftId}/pdf?name=${encodeURIComponent(downloadFilename(filename, tailored.filename, "pdf").replace(/\.pdf$/i, ""))}`,
+          };
+        } else if (kitId) {
+          const tailored = store.applicationKitFile(kitId, "resume");
+          if (!tailored) throw new Error("The selected AI resume is no longer available. Build it again before applying.");
+          if (!sameJobUrl(tailored.jobUrl, verifiedJobUrl)) throw new Error("That AI resume belongs to a different job. Build or select the version for this verified role.");
+          resumeDraft = {
+            kitId,
+            filename: downloadFilename(filename, tailored.filename, "pdf"),
+            pdfUrl: `/api/kits/${kitId}/resume/pdf?name=${encodeURIComponent(downloadFilename(filename, tailored.filename, "pdf").replace(/\.pdf$/i, ""))}`,
+          };
+        }
+        currentAutofillPack = createAutofillPack({ verified, applicationProfile, resumeDraft });
         return json(res, 200, publicAutofillPack(currentAutofillPack));
       }
       if (req.method === "GET" && url.pathname === "/api/extension/session") {
@@ -445,7 +529,7 @@ function validPackCapability(req, pack, origin) {
   const expectedBuffer = Buffer.from(expected, "hex");
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
-function createAutofillPack({ verified, applicationProfile }) {
+function createAutofillPack({ verified, applicationProfile, resumeDraft = null }) {
   const job = { ...verified.job, ...verified.lead };
   const verifiedUrl = new URL(verified.lead.finalUrl || verified.lead.url);
   if (verifiedUrl.protocol !== "https:") throw new Error("Autofill requires a verified HTTPS application page.");
@@ -462,12 +546,13 @@ function createAutofillPack({ verified, applicationProfile }) {
     expiresAt: Date.now() + 10 * 60 * 1000,
     job: { title: job.title, company: job.company, location: job.location, source: job.source, url: job.url, finalUrl: job.finalUrl, applicationUrl, checkedAt: job.checkedAt, reason: job.reason },
     allowedPages,
+    resume: resumeDraft,
     profile: safeProfile,
     policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links"], review: ["work authorization", "sponsorship", "salary", "relocation", "free-text answers", "checkboxes", "radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "legal attestations"] },
   };
 }
 function publicAutofillPack(pack) {
-  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, allowedPages: pack.allowedPages, policy: pack.policy };
+  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, allowedPages: pack.allowedPages, policy: pack.policy };
 }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
 function rememberDiscovered(cache, jobs) {
@@ -582,6 +667,17 @@ function completeLiveEvidence(verification) {
     safeHttpUrl(verification.finalUrl) && validDate(verification.checkedAt) && shortText(verification.reason, 2).length >= 2;
 }
 function safeHttpUrl(value) { try { return /^https?:$/.test(new URL(value).protocol); } catch { return false; } }
+function sameJobUrl(left, right) {
+  try {
+    const normalize = (value) => {
+      const parsed = new URL(value);
+      parsed.hash = "";
+      parsed.searchParams.sort();
+      return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}${parsed.search}`;
+    };
+    return normalize(left) === normalize(right);
+  } catch { return false; }
+}
 function validDate(value) { return Number.isFinite(Date.parse(value || "")); }
 function combinedReadiness(profile, resume) {
   const targeting = profileReadiness(profile);
@@ -604,5 +700,11 @@ function setSecurityHeaders(res) {
 }
 function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
 function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(fs.readFileSync(file)); }
+function sendBufferDownload(res, buffer, filename, type) { res.writeHead(200, { "content-type": type, "content-length": buffer.length, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(buffer); }
+function downloadFilename(requested, fallback, extension) {
+  const withoutExtension = String(requested || fallback || "tailored-resume").trim().replace(/\.(?:md|pdf)$/i, "");
+  const safe = withoutExtension.replace(/[^a-z0-9_. -]/gi, "-").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 120) || "tailored-resume";
+  return `${safe}.${extension}`;
+}
 function body(req) { return new Promise((resolve, reject) => { let raw = ""; req.on("data", (part) => { raw += part; if (raw.length > 500_000) { reject(new Error("Request body is too large.")); req.destroy(); } }); req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Invalid JSON")); } }); req.on("error", reject); }); }
 function binaryBody(req, limit) { return new Promise((resolve, reject) => { const chunks = []; let size = 0; let tooLarge = false; req.on("data", (part) => { size += part.length; if (size > limit) { tooLarge = true; chunks.length = 0; } else if (!tooLarge) chunks.push(part); }); req.on("end", () => tooLarge ? reject(new Error(`Resume PDF is too large. Use a file under ${Math.floor(limit / 1024 / 1024)} MB.`)) : resolve(Buffer.concat(chunks))); req.on("error", reject); }); }

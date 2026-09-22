@@ -11,6 +11,7 @@ export function createStore(dataDir) {
   const searchConfigPath = path.join(dataDir, "search-config.json");
   const searchStatePath = path.join(dataDir, "search-state.json");
   const resumePath = path.join(dataDir, "resume.json");
+  const resumeBackupsPath = path.join(dataDir, "resume-backups");
   const tailoredPath = path.join(dataDir, "tailored");
   const kitsPath = path.join(dataDir, "kits");
   const applicationProfilePath = path.join(dataDir, "application-profile.json");
@@ -50,6 +51,30 @@ export function createStore(dataDir) {
       const normalized = normalizeResume(resume);
       if (!normalized.ready) throw new Error("Resume text is too short. Paste the complete resume before continuing.");
       write(resumePath, normalized);
+      return normalized;
+    },
+    saveResumeAsDefault(resume) {
+      const current = normalizeResume(read(resumePath, {}));
+      let undoId = null;
+      if (current.ready) {
+        undoId = crypto.randomUUID();
+        fs.mkdirSync(resumeBackupsPath, { recursive: true, mode: 0o700 });
+        write(path.join(resumeBackupsPath, `${undoId}.json`), current);
+        pruneResumeBackups(resumeBackupsPath, 10);
+      }
+      const normalized = normalizeResume(resume);
+      if (!normalized.ready) throw new Error("Resume text is too short. Paste the complete resume before continuing.");
+      write(resumePath, normalized);
+      return { resume: normalized, undoId };
+    },
+    restoreResumeBackup(id) {
+      if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) throw new Error("The resume backup reference is invalid.");
+      const backup = read(path.join(resumeBackupsPath, `${id}.json`), null);
+      if (!backup) throw new Error("That resume backup is no longer available.");
+      const normalized = normalizeResume({ ...backup, savedAt: new Date().toISOString() });
+      if (!normalized.ready) throw new Error("The previous resume backup is incomplete and was not restored.");
+      write(resumePath, normalized);
+      fs.unlinkSync(path.join(resumeBackupsPath, `${id}.json`));
       return normalized;
     },
     profile: () => normalizeProfile(read(profilePath, {})),
@@ -92,11 +117,20 @@ export function createStore(dataDir) {
     leads: () => read(leadsPath, []),
     saveTailoredDraft(job, draft) {
       const id = crypto.randomUUID();
-      fs.mkdirSync(tailoredPath, { recursive: true });
+      fs.mkdirSync(tailoredPath, { recursive: true, mode: 0o700 });
       const filename = `${slug(job.company)}-${slug(job.title)}-${id}.md`;
       const file = path.join(tailoredPath, filename);
       fs.writeFileSync(file, draft.markdown, { encoding: "utf8", mode: 0o600 });
-      return { id, filename, file, downloadUrl: `/api/tailored/${id}`, createdAt: new Date().toISOString(), ...draft };
+      const createdAt = new Date().toISOString();
+      write(path.join(tailoredPath, `${id}.json`), {
+        id,
+        filename,
+        createdAt,
+        title: String(job.title || "Verified role").slice(0, 180),
+        company: String(job.company || "Not listed").slice(0, 100),
+        jobUrl: String(job.finalUrl || job.url || "").slice(0, 2_000),
+      });
+      return { id, filename, file, downloadUrl: `/api/tailored/${id}`, createdAt, title: job.title || "Verified role", company: job.company || "Not listed", ...draft };
     },
     tailoredFile(id) {
       if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
@@ -104,7 +138,8 @@ export function createStore(dataDir) {
       const suffix = `-${String(id)}.md`;
       const filename = fs.readdirSync(tailoredPath).find((name) => name.endsWith(suffix));
       if (!filename) return null;
-      return { filename, file: path.join(tailoredPath, filename) };
+      const metadata = read(path.join(tailoredPath, `${id}.json`), {});
+      return { ...metadata, filename, file: path.join(tailoredPath, filename) };
     },
     saveApplicationKit(job, kit) {
       const id = crypto.randomUUID();
@@ -125,7 +160,16 @@ export function createStore(dataDir) {
         }
         files[artifact] = { filename, file, downloadUrl: `/api/kits/${id}/${artifact}` };
       }
-      return { ...kit, id, createdAt: new Date().toISOString(), files };
+      const createdAt = new Date().toISOString();
+      const metadata = {
+        id,
+        createdAt,
+        title: String(job.title || "Verified role").slice(0, 180),
+        company: String(job.company || "Not listed").slice(0, 100),
+        jobUrl: String(job.finalUrl || job.url || "").slice(0, 2_000),
+      };
+      write(path.join(directory, "metadata.json"), metadata);
+      return { ...kit, ...metadata, files };
     },
     applicationKitFile(id, artifact) {
       if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
@@ -135,7 +179,8 @@ export function createStore(dataDir) {
       const suffix = `-${artifact}.${artifact === "claim-audit" ? "json" : "md"}`;
       const filename = fs.readdirSync(directory).find((name) => name.endsWith(suffix));
       if (!filename) return null;
-      return { filename, file: path.join(directory, filename), type: artifact === "claim-audit" ? "application/json" : "text/markdown" };
+      const metadata = read(path.join(directory, "metadata.json"), {});
+      return { ...metadata, filename, file: path.join(directory, filename), type: artifact === "claim-audit" ? "application/json" : "text/markdown" };
     },
     saveLiveLead(lead) {
       if (lead.status !== "live") throw new Error("Only live leads can be saved.");
@@ -150,6 +195,14 @@ export function createStore(dataDir) {
       return { saved: true, lead: saved };
     },
   };
+}
+
+function pruneResumeBackups(directory, keep) {
+  const backups = fs.readdirSync(directory)
+    .filter((name) => /^[a-f0-9-]{36}\.json$/i.test(name))
+    .map((name) => ({ name, mtimeMs: fs.statSync(path.join(directory, name)).mtimeMs }))
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+  for (const backup of backups.slice(keep)) fs.unlinkSync(path.join(directory, backup.name));
 }
 
 function slug(value) {

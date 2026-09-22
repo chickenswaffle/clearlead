@@ -40,10 +40,12 @@ function captureVerificationEvidence() {
   if (/\bverify you are human\b|\bchecking your browser\b|\bcomplete (?:the )?captcha\b|\bcaptcha verification\b/i.test(bodyText)) signals.push("access challenge");
   const navigation = globalThis.performance?.getEntriesByType?.("navigation")?.[0];
   const httpStatus = Number(navigation?.responseStatus || 0);
+  const ats = globalThis.ClearLeadAdapters?.detect?.(pageUrl.toString()) || { id: "generic" };
   return {
     pageUrl: pageUrl.toString(),
     pageTitle: String(document.title || "").trim().slice(0, 180),
     httpStatus: Number.isInteger(httpStatus) ? httpStatus : 0,
+    atsFamily: ats.id,
     signals: [...new Set(signals)],
   };
 }

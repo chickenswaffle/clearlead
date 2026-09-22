@@ -37,3 +37,11 @@ test("valid AI expansion cannot change fixed DFW geography", async () => {
   assert.ok(plan.locations.includes("Cedar Hill"));
   assert.equal(plan.locations.includes("New York"), false);
 });
+
+test("saved must-haves become a required any-of sector gate", () => {
+  const plan = deterministicSearchPlan("entry level IT support in DFW", {
+    profile: { mustHaves: ["hospital or healthcare", "school or school district"] },
+  });
+  assert.deepEqual(plan.requiredSectors, ["healthcare", "education"]);
+  assert.match(plan.explanation, /healthcare or education required/);
+});

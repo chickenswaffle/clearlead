@@ -60,3 +60,22 @@ test("atomic writes serialize across processes and leave private, valid JSON", a
   assert.equal(fs.statSync(path.join(dataDir, "profile.json")).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.includes(".tmp") || name.endsWith(".lock")), []);
 });
+
+test("default-resume undo backups are private, capped, and one-time", (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-resume-backups-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const store = createStore(dataDir);
+  const original = store.saveResume({ filename: "original.md", text: `# Original\n\n${"Original verified resume evidence. ".repeat(6)}` });
+  let latestUndoId;
+  for (let index = 0; index < 12; index += 1) {
+    latestUndoId = store.saveResumeAsDefault({ filename: `version-${index}.md`, text: `# Version ${index}\n\n${"Grounded resume evidence only. ".repeat(7)}` }).undoId;
+  }
+  const directory = path.join(dataDir, "resume-backups");
+  assert.equal(fs.readdirSync(directory).length, 10);
+  assert.equal(fs.statSync(path.join(directory, `${latestUndoId}.json`)).mode & 0o777, 0o600);
+  const restored = store.restoreResumeBackup(latestUndoId);
+  assert.equal(restored.filename, "version-10.md");
+  assert.equal(fs.existsSync(path.join(directory, `${latestUndoId}.json`)), false);
+  assert.throws(() => store.restoreResumeBackup(latestUndoId), /no longer available/);
+  assert.equal(original.ready, true);
+});

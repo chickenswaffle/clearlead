@@ -13,7 +13,7 @@ export async function buildApplicationKit({ resumeText, job, generateText, gener
   const fit = deterministicFit(source, job);
   const questions = deterministicQuestions(fit, audited.interviewIds);
   const files = renderArtifacts({ manifest, job, audited: { ...audited, fit, questions }, generatedAt });
-  return { files, audit: audited.audit, matchedTerms: fit.keywords, gaps: fit.gaps, preview: files.resume.slice(0, 12_000), artifacts: ARTIFACTS };
+  return { files, audit: audited.audit, matchedTerms: fit.keywords, gaps: fit.gaps, preview: files.resume, artifacts: ARTIFACTS };
 }
 
 export function createSourceManifest(resumeText) {
@@ -73,12 +73,7 @@ function renderArtifacts({ manifest, job, audited, generatedAt }) {
   const sourceText = (id) => sourceById.get(id).trim();
   const tailoredLines = reorderBullets(manifest, audited.priorityIds);
   const provenance = `Built from verbatim saved-resume lines and a posting verified live at ${generatedAt}. The model selected evidence and job language; it did not author candidate claims.`;
-  const resume = [
-    `# AI-prioritized resume draft — ${job.title}`, "", `- Company: ${job.company || "Not listed"}`, `- Verified source: ${job.finalUrl || job.url}`, `- Source selections accepted: ${audited.audit.accepted} · model-authored claims rejected: ${audited.audit.rejected}`, "",
-    "## Grounding note", "", provenance,
-    ...(audited.summaryIds.length ? ["", "## Selected summary evidence", "", ...audited.summaryIds.map((id) => `> ${stripBullet(sourceText(id))} _(${id})_`)] : []),
-    "", "---", "", ...tailoredLines, "",
-  ].join("\n");
+  const resume = [...tailoredLines, ""].join("\n");
   const fitReport = [
     `# Fit report — ${job.company || "Company"} / ${job.title}`, "", provenance, "", "## Resume evidence to emphasize", "",
     ...(audited.strengthIds.length ? audited.strengthIds.map((id) => `- ${stripBullet(sourceText(id))} _(${id})_`) : ["- No model-selected evidence was returned; review the full resume."]), "",

@@ -268,7 +268,7 @@ function renderSearch(data) {
   document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchedAt)} · ${healthy}/${data.sources.length} sources`;
   searchSummary.textContent = data.outage
     ? 'Every configured source failed. No posting status was inferred.'
-    : `${data.total} ranked roles · ${data.matchedCount || data.total} in the deduplicated pool · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
+    : `${data.total} ranked roles · ${data.matchedCount || data.total} eligible in the deduplicated pool · ${data.rejectedCount || 0} rejected by hard requirements · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
   sourceHealth.innerHTML = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published${source.cached ? ' · cached' : ''}` : escape(source.error)}</span>`).join('');
   searchResults.innerHTML = data.outage
     ? '<div class="empty-state"><strong>All job sources are unavailable.</strong><p>Nothing was called published or live. Retry later or inspect source errors above.</p><button class="button ghost" id="retry-outage">Retry sources</button></div>'
@@ -400,22 +400,22 @@ async function queueLead(verificationId, button) {
 }
 
 async function makeCustomResume(verificationId, button) {
-  if (aiState.configured) return createApplicationKit(verificationId, button);
   return createTailoredDraft(verificationId, button);
 }
 
 async function createTailoredDraft(verificationId, button) {
   button.disabled = true;
-  button.textContent = 'Grounding draft…';
+  button.textContent = 'Building resume…';
   tailorOutput.className = 'tailor-output active';
-  tailorOutput.innerHTML = '<p class="quiet">Reordering only resume evidence already present. No new claims are being written.</p>';
+  tailorOutput.setAttribute('aria-live', 'polite');
+  tailorOutput.innerHTML = `<div class="studio-loading"><span class="studio-orbit" aria-hidden="true"></span><div><p class="eyebrow">resume studio</p><h3>Building your grounded version live…</h3><p>Matching verified job language to evidence already in your resume. Unsupported claims stay out.</p></div></div>`;
+  tailorOutput.scrollIntoView({behavior: 'smooth', block: 'start'});
   try {
     const draft = await requestJson('/api/tailor', {method: 'POST', body: JSON.stringify({verificationId})});
-    tailorOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">grounded draft ready</p><h3>${escape(draft.filename)}</h3></div><a class="button primary" href="${escape(draft.downloadUrl)}">Download markdown</a></div>
-      <p class="quiet">Matched evidence: ${escape(draft.matchedTerms.join(', ') || 'none')}<br>Not added from the job description: ${escape(draft.absentTerms.join(', ') || 'none')}</p>
-      <details><summary>Preview draft</summary><pre>${escape(draft.preview)}</pre></details>`;
+    renderResumeStudio(draft, verificationId);
     tailorOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'Custom resume ready';
+    button.textContent = 'Open resume studio';
+    button.disabled = false;
   } catch (error) {
     tailorOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">Verify the role again, then retry. Nothing was submitted.</p>`;
     button.disabled = false;
@@ -423,7 +423,136 @@ async function createTailoredDraft(verificationId, button) {
   }
 }
 
-async function createApplicationKit(verificationId, button) {
+function renderResumeStudio(draft, verificationId) {
+  const suggestedName = resumeFileStem(`${draft.company || 'company'}-${draft.title || 'role'}-resume`);
+  const matched = draft.matchedTerms || [];
+  const absent = draft.absentTerms || [];
+  tailorOutput.innerHTML = `<section class="resume-studio" data-draft-id="${escape(draft.id)}" role="region" aria-labelledby="studio-title-${escape(draft.id)}" tabindex="-1">
+    <header class="studio-head">
+      <div><p class="eyebrow">resume studio / grounded</p><h3 id="studio-title-${escape(draft.id)}">${escape(draft.title || 'Tailored resume')}</h3><p>${escape(draft.company || 'Verified employer')} · built from your saved evidence</p></div>
+      <span class="studio-ready"><i></i> PDF ready</span>
+    </header>
+    <div class="studio-grid">
+      <aside class="studio-controls">
+        <div class="studio-step"><span>01</span><div><strong>Name this version</strong><p>This name is used when you download or save it.</p></div></div>
+        <label class="studio-name-label" for="resume-name-${escape(draft.id)}">Resume filename</label>
+        <div class="studio-filename"><input id="resume-name-${escape(draft.id)}" value="${escape(suggestedName)}" maxlength="120" autocomplete="off"><b>.pdf</b></div>
+        <a class="button primary studio-pdf" data-studio-pdf href="${escape(namedDownloadUrl(draft.pdfUrl, suggestedName))}">Download polished PDF</a>
+        <div class="studio-step"><span>02</span><div><strong>Choose what happens next</strong><p>You stay in control of every destination.</p></div></div>
+        <button class="studio-choice" data-studio-default><i>↻</i><span><strong>Save as my default</strong><small>Use this version for future matching</small></span></button>
+        <button class="studio-choice featured" data-studio-apply><i>↗</i><span><strong>Use for this application</strong><small>Select this PDF, then open the employer flow</small></span></button>
+        ${aiState.configured ? `<button class="studio-choice" data-studio-ai><i>✦</i><span><strong>Build audited AI kit</strong><small>Ask ${escape(providerName(aiState.provider))} to prioritize evidence</small></span></button>` : ''}
+        <div class="studio-ai-output" data-studio-ai-output aria-live="polite"></div>
+        <a class="studio-secondary" data-studio-markdown href="${escape(namedDownloadUrl(draft.downloadUrl, suggestedName))}">Download editable Markdown</a>
+        <p class="studio-boundary">ClearLead prepares the file and application page. It never emails an employer or clicks Submit.</p>
+        <div class="studio-message" data-studio-message aria-live="polite"></div>
+      </aside>
+      <div class="studio-preview-wrap">
+        <div class="studio-preview-meta"><span>LIVE PREVIEW</span><span>LETTER · ATS SAFE</span></div>
+        <article class="resume-paper">${resumePreviewMarkup(draft.preview)}</article>
+      </div>
+    </div>
+    <footer class="grounding-drawer">
+      <div><span class="grounding-score">${matched.length}</span><p><strong>matched signals</strong><br>${escape(matched.slice(0, 10).join(' · ') || 'Review fit manually')}</p></div>
+      <div><span class="grounding-score gap">${absent.length}</span><p><strong>gaps kept out</strong><br>${escape(absent.slice(0, 8).join(' · ') || 'No obvious gaps detected')}</p></div>
+    </footer>
+  </section>`;
+
+  const studio = tailorOutput.querySelector('.resume-studio');
+  const input = studio.querySelector('.studio-filename input');
+  const pdfLink = studio.querySelector('[data-studio-pdf]');
+  const markdownLink = studio.querySelector('[data-studio-markdown]');
+  const syncNames = () => {
+    const name = resumeFileStem(input.value);
+    pdfLink.href = namedDownloadUrl(draft.pdfUrl, name);
+    markdownLink.href = namedDownloadUrl(draft.downloadUrl, name);
+  };
+  input.addEventListener('input', syncNames);
+  studio.querySelector('[data-studio-default]').addEventListener('click', (event) => saveTailoredAsDefault(draft, input, event.currentTarget));
+  studio.querySelector('[data-studio-apply]').addEventListener('click', (event) => prepareAutofill(verificationId, event.currentTarget, {id: draft.id, filename: `${resumeFileStem(input.value)}.pdf`}));
+  studio.querySelector('[data-studio-ai]')?.addEventListener('click', (event) => createApplicationKit(verificationId, event.currentTarget, studio.querySelector('[data-studio-ai-output]')));
+  tailorOutput.setAttribute('aria-live', 'off');
+  studio.focus({preventScroll: true});
+}
+
+async function saveTailoredAsDefault(draft, input, button) {
+  const filename = `${resumeFileStem(input.value)}.md`;
+  if (!window.confirm(`Make ${filename} your default resume for future searches and tailored versions?`)) return;
+  button.disabled = true;
+  const message = button.closest('.studio-controls').querySelector('[data-studio-message]');
+  message.className = 'studio-message active';
+  message.textContent = 'Saving locally…';
+  try {
+    const saved = await requestJson(`/api/tailored/${encodeURIComponent(draft.id)}/default`, {method: 'POST', body: JSON.stringify({filename})});
+    message.className = 'studio-message active ok';
+    message.innerHTML = `${escape(saved.message)}${saved.undoId ? ' <button class="studio-undo" type="button">Undo</button>' : ''}`;
+    if (saved.undoId) message.querySelector('.studio-undo').addEventListener('click', (event) => restoreDefaultResume(saved.undoId, message, event.currentTarget, button));
+    button.querySelector('strong').textContent = 'Saved as default';
+    button.querySelector('small').textContent = 'Future matching will use this version';
+    await loadState({autoSearch: false});
+  } catch (error) {
+    message.className = 'studio-message active error';
+    message.textContent = error.message;
+    button.disabled = false;
+  }
+}
+
+async function restoreDefaultResume(undoId, message, undoButton, defaultButton) {
+  undoButton.disabled = true;
+  try {
+    const restored = await requestJson('/api/resume/default/restore', {method: 'POST', body: JSON.stringify({undoId})});
+    message.className = 'studio-message active ok';
+    message.textContent = restored.message;
+    defaultButton.disabled = false;
+    defaultButton.querySelector('strong').textContent = 'Save as my default';
+    defaultButton.querySelector('small').textContent = 'Use this version for future matching';
+    await loadState({autoSearch: false});
+  } catch (error) {
+    message.className = 'studio-message active error';
+    message.textContent = error.message;
+  }
+}
+
+function namedDownloadUrl(url, name) {
+  return `${url}?name=${encodeURIComponent(resumeFileStem(name))}`;
+}
+
+function resumeFileStem(value) {
+  return String(value || 'tailored-resume').replace(/\.(?:pdf|md)$/i, '').replace(/[^a-z0-9_. -]/gi, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^[.-]+|[.-]+$/g, '').slice(0, 120) || 'tailored-resume';
+}
+
+function resumePreviewMarkup(markdown) {
+  const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+  const commonSections = /^(summary|profile|professional summary|experience|work experience|employment|education|skills|technical skills|certifications|projects|selected projects|awards|volunteer experience):?$/i;
+  let output = '';
+  let listOpen = false;
+  let firstContent = true;
+  const closeList = () => { if (listOpen) { output += '</ul>'; listOpen = false; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const bullet = line.match(/^(?:[-*+•]|\d+[.)])\s+(.+)$/);
+    if (bullet) {
+      if (!listOpen) { output += '<ul>'; listOpen = true; }
+      output += `<li>${escape(bullet[1])}</li>`;
+      firstContent = false;
+      continue;
+    }
+    closeList();
+    if (heading) {
+      const level = heading[1].length === 1 && firstContent ? 'h1' : 'h2';
+      output += `<${level}>${escape(heading[2])}</${level}>`;
+    } else if (commonSections.test(line)) output += `<h2>${escape(line.replace(/:$/, ''))}</h2>`;
+    else if (firstContent && line.length <= 72) output += `<h1>${escape(line)}</h1>`;
+    else output += `<p>${escape(line)}</p>`;
+    firstContent = false;
+  }
+  closeList();
+  return output;
+}
+
+async function createApplicationKit(verificationId, button, embeddedOutput = null) {
   if (!aiState.configured) {
     document.querySelector('#ai-setup').scrollIntoView({behavior: 'smooth'});
     showAIMessage('Add an OpenRouter, OpenAI, or Anthropic key first. The local tailor remains available without one.', 'error');
@@ -431,42 +560,56 @@ async function createApplicationKit(verificationId, button) {
   }
   const approved = window.confirm(`Send your saved resume and this verified job description to ${providerName(aiState.provider)} (${aiState.model}) to build a reviewable application kit? ClearLead will not submit anything.`);
   if (!approved) return;
+  const output = embeddedOutput || tailorOutput;
   button.disabled = true;
-  button.textContent = 'Building & auditing…';
-  tailorOutput.className = 'tailor-output active';
-  tailorOutput.innerHTML = '<p class="quiet">Selecting and prioritizing verbatim resume evidence for the resume, fit report, cover-letter evidence draft, and interview prep.</p>';
+  const label = button.querySelector('strong');
+  const detail = button.querySelector('small');
+  if (label) label.textContent = 'Building audited kit…'; else button.textContent = 'Building & auditing…';
+  if (detail) detail.textContent = 'Selecting only grounded evidence';
+  output.className = embeddedOutput ? 'studio-ai-output active' : 'tailor-output active';
+  output.innerHTML = '<p class="quiet">Selecting and prioritizing verbatim resume evidence for the resume, fit report, cover-letter evidence draft, and interview prep.</p>';
   try {
     const consent = await requestJson('/api/ai/consent', {method: 'POST', body: JSON.stringify({verificationId})});
     const kit = await requestJson('/api/ai/kit', {method: 'POST', body: JSON.stringify({verificationId, consentId: consent.consentId})});
-    const labels = {'resume':'Tailored resume', 'fit-report':'Fit report', 'cover-letter':'Cover letter', 'interview-prep':'Interview prep', 'claim-audit':'Claim audit'};
-    const downloads = Object.entries(kit.downloads).map(([name, url]) => `<a class="button ${name === 'resume' ? 'primary' : 'ghost'}" href="${escape(url)}">${escape(labels[name] || name)}</a>`).join('');
-    tailorOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">audited application kit ready</p><h3>${escape(providerName(kit.provider))} · ${escape(kit.model)}</h3></div><div class="kit-downloads">${downloads}</div></div>
+    const labels = {'resume':'Editable resume', 'fit-report':'Fit report', 'cover-letter':'Cover letter', 'interview-prep':'Interview prep', 'claim-audit':'Claim audit'};
+    const downloads = `<a class="button primary" href="${escape(kit.pdfUrl)}">Download AI resume PDF</a>` + Object.entries(kit.downloads).map(([name, url]) => `<a class="button ghost" href="${escape(url)}">${escape(labels[name] || name)}</a>`).join('');
+    output.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">audited application kit ready</p><h3>${escape(providerName(kit.provider))} · ${escape(kit.model)}</h3></div><div class="kit-downloads">${downloads}</div></div>
       <div class="audit-strip"><strong>${kit.audit.accepted}</strong><span>source selections accepted</span><strong>${kit.audit.rejected}</strong><span>model-written claims rejected</span></div>
       <p class="quiet">Priority language: ${escape(kit.matchedTerms.join(', ') || 'none returned')}<br>Gaps kept out of the resume: ${escape(kit.gaps.join(', ') || 'none returned')}</p>
+      <button class="button primary" data-ai-use type="button"><strong>Use this AI version</strong><small>Select its PDF for this application</small></button>
       <details><summary>Preview audited resume</summary><pre>${escape(kit.preview)}</pre></details>`;
-    tailorOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'Custom resume ready';
+    output.querySelector('[data-ai-use]').addEventListener('click', (event) => prepareAutofill(verificationId, event.currentTarget, {kitId: kit.id, filename: `${resumeFileStem(`${kit.company || 'company'}-${kit.title || 'role'}-AI-resume`)}.pdf`}));
+    output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    if (label) label.textContent = 'Audited AI kit ready'; else button.textContent = 'Custom resume ready';
+    if (detail) detail.textContent = 'Downloads available below';
   } catch (error) {
-    tailorOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">No kit was saved and nothing was submitted. You can retry or use the local grounded tailor.</p>`;
+    output.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">No kit was saved and nothing was submitted. You can retry or keep using the local grounded resume above.</p>`;
     button.disabled = false;
-    button.textContent = 'Retry custom resume';
+    if (label) label.textContent = 'Retry audited AI kit'; else button.textContent = 'Retry custom resume';
+    if (detail) detail.textContent = 'The local Resume Studio is still available';
   }
 }
 
-async function prepareAutofill(verificationId, button) {
+async function prepareAutofill(verificationId, button, resumeDraft = null) {
   button.disabled = true;
-  button.textContent = 'Preparing…';
+  const label = button.querySelector('strong');
+  const detail = button.querySelector('small');
+  if (label) label.textContent = 'Preparing application…'; else button.textContent = 'Preparing…';
   try {
-    const pack = await requestJson('/api/application/prepare', {method: 'POST', body: JSON.stringify({verificationId})});
+    const resumeSelection = resumeDraft ? {...(resumeDraft.kitId ? {kitId: resumeDraft.kitId} : {draftId: resumeDraft.id}), filename: resumeDraft.filename} : {};
+    const pack = await requestJson('/api/application/prepare', {method: 'POST', body: JSON.stringify({verificationId, ...resumeSelection})});
+    const resumeHandoff = pack.resume ? `<div class="application-resume"><div><strong>Selected resume</strong><span>${escape(pack.resume.filename)}</span></div><a class="button ghost" href="${escape(pack.resume.pdfUrl)}">Download selected PDF</a></div>` : '<p class="quiet">No tailored resume is attached to this handoff. Choose and upload a resume on the employer page.</p>';
     autofillOutput.className = 'tailor-output active';
-    autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">autofill pack ready</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div><p class="quiet">Authorized page: ${escape(pack.allowedPages.join(', '))}. Open that exact verified page, then click <strong>Fill safe fields</strong> in the paired ClearLead extension. Review-only and sensitive fields will be highlighted; Submit is never clicked.</p>`;
+    autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">application handoff ready</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Download the selected PDF, open that exact verified page, and upload it when the employer asks. Then click <strong>Fill safe fields</strong> in the paired ClearLead extension. Review every answer yourself; Submit is never clicked.</p>`;
     autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
-    button.textContent = 'Application ready';
+    if (label) label.textContent = 'Application handoff ready'; else button.textContent = 'Application ready';
+    if (detail) detail.textContent = 'Download the PDF and open the employer flow below';
   } catch (error) {
     autofillOutput.className = 'tailor-output active';
     autofillOutput.innerHTML = `<strong>${escape(error.message)}</strong><p class="quiet">Save your application identity, pair the extension, or verify the role again, then retry.</p>`;
     button.disabled = false;
-    button.textContent = 'Retry autofill';
+    if (label) label.textContent = 'Retry application handoff'; else button.textContent = 'Retry autofill';
+    if (detail) detail.textContent = 'Nothing was sent';
   }
 }
 

@@ -86,3 +86,22 @@ test("smart support search retains related titles before ranking and excludes un
   });
   assert.deepEqual(new Set(result.jobs.map((job) => job.title)), new Set(["IT Technician", "End User Computing Technician", "Technology Support Associate"]));
 });
+
+test("search excludes hard-ineligible roles and reports rejection reasons", async () => {
+  const jobs = [
+    { title: "Technical Support Specialist - DoD SkillBridge", company: "Defense Vendor", location: "Dallas", url: "https://jobs.example/skillbridge", description: "DoD SkillBridge only", postedAt: "2026-09-20T00:00:00Z" },
+    { title: "IT Support Specialist", company: "Dallas Medical Center", location: "Dallas", url: "https://jobs.example/hospital", description: "Support hospital employees and clinical endpoints", postedAt: "2026-09-20T00:00:00Z" },
+    { title: "IT Support Specialist", company: "Ancient Corp", location: "Dallas", url: "https://jobs.example/stale", description: "Support employees", postedAt: "2020-01-01T00:00:00Z" },
+  ];
+  const plan = { titles: ["IT Support Specialist", "Technical Support Specialist"], locations: ["Dallas"], sectors: ["healthcare"], requiredSectors: ["healthcare"], seniority: "entry", remote: false };
+  const result = await searchPublishedRoles({ boards: ["example"], query: plan.titles.join(", "), location: "Dallas", plan }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    profile: { mustHaves: ["hospital or healthcare"] },
+    resume: { text: "IT support and Windows troubleshooting", keywords: ["support"], skills: ["windows"] },
+    now: () => new Date("2026-09-22T12:00:00Z"),
+  });
+  assert.deepEqual(result.jobs.map((job) => job.url), ["https://jobs.example/hospital"]);
+  assert.equal(result.rejectedCount, 2);
+  assert.ok(result.rejectionReasons.some((reason) => reason.code === "skillbridge-only" && reason.count === 1));
+  assert.ok(result.rejectionReasons.some((reason) => reason.code === "stale-posting" && reason.count === 1));
+});

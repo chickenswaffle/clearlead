@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "extension", "manifest.json"), "utf8"));
+const adapters = fs.readFileSync(path.join(root, "extension", "adapters.js"), "utf8");
 const content = fs.readFileSync(path.join(root, "extension", "content.js"), "utf8");
 const popup = fs.readFileSync(path.join(root, "extension", "popup.js"), "utf8");
 
@@ -21,6 +22,22 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.match(content, /emergency\.\?contact/);
   assert.match(content, /Object\.getOwnPropertyDescriptor/);
   assert.doesNotMatch(content, /dispatchEvent/);
+  assert.deepEqual(manifest.content_scripts[0].js, ["adapters.js", "content.js"]);
+  assert.doesNotMatch(adapters, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
+});
+
+test("ATS registry detects the first supported application families", () => {
+  const context = { URL };
+  vm.runInNewContext(adapters, context);
+  const detect = context.ClearLeadAdapters.detect;
+  assert.equal(detect("https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/7").id, "workday");
+  assert.equal(detect("https://boards.greenhouse.io/acme/jobs/7").id, "greenhouse");
+  assert.equal(detect("https://jobs.lever.co/acme/7/apply").id, "lever");
+  assert.equal(detect("https://jobs.ashbyhq.com/acme/7/application").id, "ashby");
+  assert.equal(detect("https://jobs.smartrecruiters.com/Acme/7-role").id, "smartrecruiters");
+  assert.equal(detect("https://careers.example.com/jobs/7").id, "generic");
+  assert.equal(context.ClearLeadAdapters.supported.length, 5);
+  assert.ok(context.ClearLeadAdapters.supported.every((item) => item.capabilities.finalSubmit === false));
 });
 
 test("extension only fetches the paired localhost pack", () => {
@@ -36,6 +53,7 @@ test("extension only fetches the paired localhost pack", () => {
 test("browser capture refuses to treat the ClearLead tab as a job page", () => {
   const context = {
     chrome: { runtime: { onMessage: { addListener() {} } } },
+    ClearLeadAdapters: { detect: () => ({ id: "generic" }) },
     location: { href: "http://127.0.0.1:4173/" },
     URL,
     document: { title: "ClearLead", body: { innerText: "Job description Responsibilities" }, querySelectorAll: () => [] },
@@ -55,6 +73,7 @@ test("browser capture returns compact rendered evidence without page text", () =
   const schema = { textContent: '{"@type":"JobPosting"}' };
   const context = {
     chrome: { runtime: { onMessage: { addListener() {} } } },
+    ClearLeadAdapters: { detect: () => ({ id: "lever" }) },
     location: { href: "https://jobs.example.com/roles/7#apply" },
     URL,
     document: {
@@ -75,6 +94,7 @@ test("browser capture returns compact rendered evidence without page text", () =
     pageUrl: "https://jobs.example.com/roles/7",
     pageTitle: "IT Support Technician",
     httpStatus: 200,
+    atsFamily: "lever",
     signals: ["apply action", "job description", "responsibilities", "qualifications", "job schema"],
   });
   assert.doesNotMatch(JSON.stringify(evidence), /Private candidate text/);

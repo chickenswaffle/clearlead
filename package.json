@@ -12,6 +12,10 @@
     "test": "node --test test/**/*.test.mjs"
   },
   "dependencies": {
-    "pdfjs-dist": "6.2.108"
+    "@expo-google-fonts/noto-sans": "^0.4.2",
+    "@expo-google-fonts/noto-sans-arabic": "^0.4.3",
+    "@fontsource/noto-sans-sc": "^5.3.0",
+    "pdfjs-dist": "6.2.108",
+    "pdfkit": "^0.20.2"
   }
 }

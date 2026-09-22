@@ -25,6 +25,7 @@ const SECTORS = [
 
 export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = {}) {
   const intent = clean(prompt, MAX_PROMPT) || "best jobs for my resume";
+  const requiredText = strings(profile.mustHaves).join(" ");
   const matchedFamily = ROLE_FAMILIES.find((family) => family.match.test(intent));
   const profileTitles = strings(profile.targetRoles).slice(0, 8);
   const resumeTitles = strings(resume.roleHints).slice(0, 6);
@@ -32,7 +33,8 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
   const dfw = /\b(dfw|dallas[ -]fort worth|cedar hill|desoto|de soto|duncanville|lancaster|grand prairie|mansfield|midlothian|waxahachie|arlington|fort worth|irving)\b/i.test(intent);
   const remote = /\b(remote|work from home|wfh)\b/i.test(intent);
   const locations = dfw ? DFW_LOCATIONS : unique([...extractLocations(intent), ...strings(profile.locations)]).slice(0, 14);
-  const sectors = SECTORS.filter((sector) => sector.match.test(intent)).map((sector) => sector.value);
+  const sectors = SECTORS.filter((sector) => sector.match.test(`${intent} ${requiredText}`)).map((sector) => sector.value);
+  const requiredSectors = SECTORS.filter((sector) => sector.match.test(requiredText)).map((sector) => sector.value);
   const seniority = /\b(entry|entry-level|entry level|junior|starter|no experience)\b/i.test(intent) ? "entry" : "any";
   const searchTerms = titles.length ? titles : fallbackTerms(resume, profile);
   const ledgerQueries = unique(searchTerms.map(compactQuery)).filter(Boolean).slice(0, 5);
@@ -43,6 +45,7 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
     titles: searchTerms.slice(0, 14),
     locations,
     sectors,
+    requiredSectors,
     seniority,
     remote,
     keywords,
@@ -52,7 +55,7 @@ export function deterministicSearchPlan(prompt, { resume = {}, profile = {} } = 
       query: searchTerms.join(", "),
       location: locations.join(", "),
     },
-    explanation: buildExplanation({ searchTerms, locations, sectors, seniority, remote }),
+    explanation: buildExplanation({ searchTerms, locations, sectors, requiredSectors, seniority, remote }),
   };
 }
 
@@ -90,9 +93,10 @@ export async function createSearchPlan(prompt, { resume = {}, profile = {}, gene
       titles: mergedTitles,
       keywords: unique([...keywords, ...fallback.keywords]).slice(0, 20),
       sectors: unique([...sectors, ...fallback.sectors]).slice(0, 5),
+      requiredSectors: fallback.requiredSectors,
       ledgerQueries: unique(mergedTitles.map(compactQuery)).slice(0, 5),
       searchConfig: { ...fallback.searchConfig, query: mergedTitles.join(", ") },
-      explanation: buildExplanation({ searchTerms: mergedTitles, locations: fallback.locations, sectors: unique([...sectors, ...fallback.sectors]), seniority: fallback.seniority, remote: fallback.remote }),
+      explanation: buildExplanation({ searchTerms: mergedTitles, locations: fallback.locations, sectors: unique([...sectors, ...fallback.sectors]), requiredSectors: fallback.requiredSectors, seniority: fallback.seniority, remote: fallback.remote }),
     };
   } catch {
     return { ...fallback, note: "AI returned an invalid search plan, so ClearLead used its built-in search expansion." };
@@ -111,10 +115,11 @@ function extractLocations(value) {
 function compactQuery(title) {
   return clean(title, 80).replace(/\b(entry|junior|senior|lead|specialist|technician|analyst)\b/gi, " ").replace(/\s+/g, " ").trim() || clean(title, 80);
 }
-function buildExplanation({ searchTerms, locations, sectors, seniority, remote }) {
+function buildExplanation({ searchTerms, locations, sectors, requiredSectors = [], seniority, remote }) {
   const parts = [`expanded to ${searchTerms.length} related titles`];
   if (locations.length) parts.push(`${locations.length} preferred locations`);
   if (sectors.length) parts.push(`${sectors.join(" + ")} employers`);
+  if (requiredSectors.length) parts.push(`${requiredSectors.join(" or ")} required`);
   if (seniority === "entry") parts.push("entry-level preference");
   if (remote) parts.push("remote included");
   return parts.join(" · ");

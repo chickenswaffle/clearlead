@@ -1,8 +1,10 @@
 import { terms } from "./resume.mjs";
+import { evaluateJobEligibility } from "./eligibility.mjs";
 
 const SENIORITY = new Set(["intern", "junior", "associate", "senior", "staff", "principal", "lead", "manager", "director", "head", "vp", "chief"]);
 
 export function rankJob(job, { resume = {}, profile = {}, query = "", location = "", plan = {}, now = new Date() } = {}) {
+  const eligibility = evaluateJobEligibility(job, { resume, profile, plan, now });
   const titleTerms = terms(job.title);
   const descriptionTerms = terms(job.description).slice(0, 900);
   const jobTerms = new Set([...titleTerms, ...descriptionTerms]);
@@ -29,15 +31,18 @@ export function rankJob(job, { resume = {}, profile = {}, query = "", location =
   const sectorScore = sectors.length ? (sectors.some((sector) => sectorText.includes(String(sector).toLowerCase()) || sectorAliases(sector).some((alias) => sectorText.includes(alias))) ? 100 : 0) : 60;
   const seniorityPenalty = plan.seniority === "entry" && /\b(senior|sr\.?|lead|manager|director|principal|staff)\b/i.test(job.title || "") ? 18 : 0;
   const locationPenalty = hasPlan && preferredLocations.length > 0 && locationScore === 0 && !/\bremote\b/i.test(`${job.location} ${job.workplaceType || ""}`) ? 20 : 0;
-  const score = hasPlan
+  const rawScore = hasPlan
     ? Math.max(0, Math.round(titleScore * 0.3 + skillScore * 0.35 + locationScore * 0.15 + freshnessScore * 0.1 + sectorScore * 0.1 - seniorityPenalty - locationPenalty))
     : Math.round(titleScore * 0.4 + skillScore * 0.4 + locationScore * 0.1 + freshnessScore * 0.1);
+  const score = eligibility.eligible ? rawScore : 0;
   const jobImportant = [...new Set([...titleTerms, ...descriptionTerms])]
     .filter((term) => term.length > 2 && !resumeTerms.has(term))
     .slice(0, 8);
 
   return {
     score,
+    rawScore,
+    eligibility,
     matchedSkills: [...new Set(matchedSkills)].slice(0, 10),
     matchedKeywords,
     missingKeywords: jobImportant,

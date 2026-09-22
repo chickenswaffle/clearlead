@@ -32,6 +32,14 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(html, /Entry level tech jobs in DFW/);
   assert.match(script, /\/api\/search\/smart/);
   assert.match(script, /Make custom resume/);
+  assert.match(script, /resume studio \/ grounded/i);
+  assert.match(script, /Download polished PDF/);
+  assert.match(script, /Save as my default/);
+  assert.match(script, /Use for this application/);
+  assert.match(script, /Use this AI version/);
+  assert.match(script, /kitId: kit\.id/);
+  assert.match(script, /never emails an employer or clicks Submit/i);
+  assert.match(script, /\/api\/tailored\/\$\{encodeURIComponent\(draft\.id\)\}\/default/);
   assert.match(script, /Read job description/);
   assert.match(html, /id="pair-extension"/);
   assert.match(html, /id="full-name"/);
