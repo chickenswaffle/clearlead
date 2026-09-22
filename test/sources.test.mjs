@@ -31,6 +31,8 @@ test("broad feed fixtures normalize Remotive and Arbeitnow", async () => {
   const arbeitnow = await discoverArbeitnow({ fetchFn: async () => response({ data: [{ title: "Data Engineer", company_name: "Beta", url: "https://arbeitnow.com/job/2", location: "Berlin", description: "<b>SQL</b>", created_at: 1787700000 }] }) });
   assert.equal(remotive.jobs[0].description, "Python");
   assert.equal(arbeitnow.jobs[0].description, "SQL");
+  assert.equal(remotive.queryMode, "full-feed-local-filtered");
+  assert.equal(arbeitnow.queryMode, "full-feed-local-filtered");
 });
 
 test("public job ledger fans out expanded terms and normalizes employer-direct descriptions", async () => {

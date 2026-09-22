@@ -141,7 +141,7 @@ export async function discoverAshby(board, options = {}) {
 
 export async function discoverRemotive(options = {}) {
   return fetchJobs({
-    type: "remotive", board: "remote", endpoint: "https://remotive.com/api/remote-jobs?limit=250", options,
+    type: "remotive", board: "remote", endpoint: "https://remotive.com/api/remote-jobs?limit=250", options, queryMode: "full-feed-local-filtered",
     map(payload) {
       return (Array.isArray(payload?.jobs) ? payload.jobs : []).map((job) => ({
         source: "remotive", board: "remote", company: text(job.company_name, "Company not listed"),
@@ -154,7 +154,7 @@ export async function discoverRemotive(options = {}) {
 
 export async function discoverArbeitnow(options = {}) {
   return fetchJobs({
-    type: "arbeitnow", board: "europe", endpoint: "https://www.arbeitnow.com/api/job-board-api", options,
+    type: "arbeitnow", board: "europe", endpoint: "https://www.arbeitnow.com/api/job-board-api", options, queryMode: "full-feed-local-filtered",
     map(payload) {
       return (Array.isArray(payload?.data) ? payload.data : []).map((job) => ({
         source: "arbeitnow", board: "europe", company: text(job.company_name, "Company not listed"),
@@ -166,7 +166,7 @@ export async function discoverArbeitnow(options = {}) {
   });
 }
 
-async function fetchJobs({ type, board, endpoint, options, map }) {
+async function fetchJobs({ type, board, endpoint, options, map, queryMode = "" }) {
   const { fetchFn = fetch, timeoutMs = 15_000, limit = 500 } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -174,7 +174,7 @@ async function fetchJobs({ type, board, endpoint, options, map }) {
     const response = await fetchFn(endpoint, { headers: { accept: "application/json", "user-agent": "ClearLead/0.2 (+local job discovery)" }, signal: controller.signal });
     if (!response.ok) return { source: type, board, jobs: [], error: `${humanize(type)} returned HTTP ${response.status}. Retry or remove this source.` };
     const jobs = map(await response.json()).filter((job) => isHttpUrl(job.url)).slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
-    return { source: type, board, jobs, error: null };
+    return { source: type, board, jobs, error: null, ...(queryMode ? { queryMode } : {}) };
   } catch (error) {
     return { source: type, board, jobs: [], error: error?.name === "AbortError" ? `${humanize(type)} timed out. Retry this source.` : `Could not reach ${humanize(type)} from this machine. Retry this source.` };
   } finally {

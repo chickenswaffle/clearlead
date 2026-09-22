@@ -66,7 +66,7 @@ export async function searchPublishedRoles(input, {
       name: spec.name,
       ok: !result.error,
       cached: Boolean(result.cached),
-      queryMode: result.queryMode || "query-aligned",
+      queryMode: result.queryMode || defaultQueryMode(spec.type),
       note: result.note || "",
       error: result.error,
       jobs: result.jobs || [],
@@ -171,6 +171,12 @@ function providerAccess(config) {
     { id: "indeed", name: "Indeed", status: "partner-required", detail: "Official search access requires publisher-partner approval and an HTTPS placement" },
     { id: "glassdoor", name: "Glassdoor", status: "partner-required", detail: "Official API access is restricted to approved integrations" },
   ];
+}
+function defaultQueryMode(type) {
+  if (type === "jobledger") return "query-aligned";
+  if (["remotive", "arbeitnow"].includes(type)) return "full-feed-local-filtered";
+  if (["greenhouse", "lever", "ashby"].includes(type)) return "employer-board-local-filtered";
+  return "supplemental-unfiltered";
 }
 function words(value) { return String(value).toLowerCase().match(/[a-z0-9+#.]{2,}/g) || []; }
 function smartTitleMatches(title, plan) {

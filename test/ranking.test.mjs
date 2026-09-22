@@ -98,3 +98,15 @@ test("a missing explicitly required qualification produces a skip decision", () 
   assert.equal(match.qualifications.counts.missing, 1);
   assert.equal(match.decision.code, "skip");
 });
+
+test("section-based minimum qualifications cannot receive an apply decision when unsupported", () => {
+  const match = rankJob({
+    title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://acme.example/jobs/1",
+    description: "Minimum Qualifications:\nActive Directory\n3 years of IT support experience",
+  }, {
+    resume: { text: "Customer support associate\n2024 - Present", keywords: ["support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.counts.missing, 2);
+  assert.equal(match.decision.code, "skip");
+});

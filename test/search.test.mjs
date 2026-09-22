@@ -50,8 +50,8 @@ test("multi-board search filters, deduplicates, scores, and reports source failu
   assert.equal(result.funnel.fitSkipped, 0);
 });
 
-test("source diagnostics distinguish query-aligned feeds from supplemental unfiltered samples", async () => {
-  const result = await searchPublishedRoles({ broadFeeds: ["jobledger", "ziprecruiter"], query: "support" }, {
+test("source diagnostics distinguish upstream query coverage from locally filtered pools", async () => {
+  const result = await searchPublishedRoles({ broadFeeds: ["jobledger", "ziprecruiter", "remotive", "arbeitnow"], greenhouseBoards: ["acme"], query: "support" }, {
     discoverSourceFn: async (source) => ({
       jobs: [],
       error: null,
@@ -62,6 +62,9 @@ test("source diagnostics distinguish query-aligned feeds from supplemental unfil
   });
   assert.equal(result.sources.find((source) => source.type === "jobledger").queryMode, "query-aligned");
   assert.equal(result.sources.find((source) => source.type === "ziprecruiter").queryMode, "supplemental-unfiltered");
+  assert.equal(result.sources.find((source) => source.type === "remotive").queryMode, "full-feed-local-filtered");
+  assert.equal(result.sources.find((source) => source.type === "arbeitnow").queryMode, "full-feed-local-filtered");
+  assert.equal(result.sources.find((source) => source.type === "greenhouse").queryMode, "employer-board-local-filtered");
 });
 
 test("search supports comma-separated role and location alternatives", async () => {

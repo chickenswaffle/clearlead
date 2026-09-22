@@ -271,7 +271,8 @@ function renderSearch(data) {
   searchSummary.textContent = data.outage
     ? 'Every configured source failed. No posting status was inferred.'
     : `${data.total} actionable roles · ${data.funnel?.discovered ?? '—'} discovered · ${data.funnel?.titleMismatch ?? 0} outside target roles · ${data.funnel?.locationMismatch ?? 0} outside target area · ${data.rejectedCount || 0} hard-rejected · ${data.funnel?.fitSkipped ?? 0} weak/unsupported fits hidden · ${data.funnel?.duplicatesRemoved ?? 0} duplicates removed · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
-  const activeSources = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published${source.queryMode === 'supplemental-unfiltered' ? ' · supplemental/unfiltered' : ' · query-aligned'}${source.cached ? ' · cached' : ''}${source.note ? ` · ${escape(source.note)}` : ''}` : escape(source.error)}</span>`).join('');
+  const sourceMode = (mode) => ({'query-aligned':'query-aligned','supplemental-unfiltered':'supplemental/unfiltered','full-feed-local-filtered':'full feed/local filter','employer-board-local-filtered':'employer board/local filter'}[mode] || 'coverage mode unknown');
+  const activeSources = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published · ${escape(sourceMode(source.queryMode))}${source.cached ? ' · cached' : ''}${source.note ? ` · ${escape(source.note)}` : ''}` : escape(source.error)}</span>`).join('');
   const gatedSources = (data.providerAccess || []).filter((provider) => provider.status === 'partner-required').map((provider) => `<span class="source-chip gate">${escape(provider.name)} · partner access needed</span>`).join('');
   sourceHealth.innerHTML = activeSources + gatedSources;
   searchResults.innerHTML = data.outage

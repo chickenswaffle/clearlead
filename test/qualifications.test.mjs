@@ -50,3 +50,26 @@ test("skills, clearance, and onsite location constraints remain individually aud
   assert.equal(result.items.find((item) => item.code === "security-clearance").status, "met");
   assert.equal(result.items.find((item) => item.code === "location").status, "met");
 });
+
+test("minimum-qualification sections make listed skills and domain-qualified experience required", () => {
+  const result = analyzeQualifications({
+    description: "Minimum Qualifications:\nActive Directory\n3 years of IT support experience",
+  }, { text: "General customer support\n2024 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+  const experience = result.items.find((item) => item.code === "experience-years");
+  const activeDirectory = result.items.find((item) => item.code === "skill-active-directory");
+  assert.equal(experience.importance, "required");
+  assert.equal(experience.status, "missing");
+  assert.equal(activeDirectory.importance, "required");
+  assert.equal(activeDirectory.status, "missing");
+  assert.equal(result.counts.missing, 2);
+});
+
+test("negated availability conflicts with required weekend and overnight schedules", () => {
+  for (const preference of ["No weekends", "Cannot work overnight"]) {
+    const result = analyzeQualifications({ description: "Requirements:\nMust be available for weekends and overnight shifts." }, { text: "IT support" }, { profile: { preferences: [preference] } });
+    const schedule = result.items.find((item) => item.code === "schedule");
+    assert.equal(schedule.importance, "required");
+    assert.equal(schedule.status, "missing");
+    assert.match(schedule.explanation, /conflicts/i);
+  }
+});
