@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildApplicationKit, createSourceManifest, auditModelDraft } from "../src/ai-resume.mjs";
+import { buildApplicationKit, createSourceManifest, auditClaimRewrite, auditModelDraft } from "../src/ai-resume.mjs";
 
 const resume = `# Taylor Example
 
@@ -49,5 +49,26 @@ test("audit rejects missing provenance and malformed model JSON", () => {
     fit: { strengths: [{ text: "At Google, I built Python services.", source_ids: ["L007"] }] },
   }, createSourceManifest(resume));
   assert.equal(audited.audit.rejected, 3);
-  assert.ok(audited.audit.findings.filter((finding) => finding.status === "rejected").every((finding) => /model-authored candidate prose/.test(finding.reason)));
+  assert.ok(audited.audit.findings.filter((finding) => finding.status === "rejected").some((finding) => /unsupported (?:named|claim) terms/.test(finding.reason)));
+  assert.ok(audited.audit.findings.filter((finding) => finding.status === "rejected").some((finding) => /model-authored candidate prose/.test(finding.reason)));
+});
+
+test("claim audit accepts strategic restructuring but rejects invented facts", async () => {
+  const manifest = createSourceManifest(resume);
+  const source = manifest.find((line) => line.id === "L008");
+  const accepted = auditClaimRewrite(source, "- Improved reliability across product teams by 30% through deployment.");
+  assert.equal(accepted.accepted, true);
+  assert.deepEqual(accepted.immutableTokens, ["30%"]);
+  assert.equal(auditClaimRewrite(source, "- Improved reliability by 90% across Google product teams.").accepted, false);
+  assert.equal(auditClaimRewrite(source, "- Improved Terraform deployment reliability by 30% across product teams.").accepted, false);
+
+  const kit = await buildApplicationKit({
+    resumeText: resume,
+    job: { status: "live", title: "Platform Engineer", company: "Acme", url: "https://jobs.example/1", description: "Deployment reliability across product teams" },
+    generateText: async () => JSON.stringify({ priority_source_ids: ["L008"], bullet_rewrites: [{ source_id: "L008", text: accepted.text }] }),
+    generatedAt: "2026-09-22T12:00:00.000Z",
+  });
+  assert.match(kit.files.resume, /Improved reliability across product teams by 30% through deployment/);
+  assert.doesNotMatch(kit.files.resume, /Improved deployment reliability by 30%/);
+  assert.match(kit.files["claim-audit"], /candidate-truth-grounded-rewrites/);
 });
