@@ -26,6 +26,10 @@ test("tailoring reorders only original resume lines and never inserts job claims
   assert.ok(draft.absentTerms.includes("terraform"));
   assert.ok(draft.requirementMatrix.items.some((item) => item.code === "skill-terraform" && item.status === "missing"));
   assert.ok(draft.changes.every((change) => change.reason));
+  assert.match(draft.markdown, /## Targeted Profile/);
+  assert.equal(draft.tailoringAudit.policy, "extractive-targeted-profile; source-lines-preserved; employment-history-retained");
+  assert.ok(draft.tailoringAudit.selections.every((selection) => resume.includes(selection.evidence)));
+  assert.deepEqual(draft.tailoringAudit.omissions, []);
 });
 
 test("tailoring uses required evidence as the strongest reorder signal and explains each move", () => {
@@ -37,6 +41,17 @@ test("tailoring uses required evidence as the strongest reorder signal and expla
   assert.equal(bullets[0], "- Built Python services on Kubernetes.");
   assert.ok(draft.requirementMatrix.items.some((item) => item.label === "kubernetes" && item.importance === "required" && item.status === "met"));
   assert.ok(draft.changes.some((change) => change.type === "reorder" && /kubernetes/i.test(change.reason)));
+  assert.ok(draft.changes.some((change) => change.type === "selection" && /kubernetes/i.test(change.reason)));
+});
+
+test("local tailoring materially changes positioning with an extractive profile while retaining employment history", () => {
+  const draft = tailorResume(resume, { status: "live", title: "Platform Engineer", description: "Python and Kubernetes are required. Terraform is preferred." });
+  const profile = draft.markdown.slice(draft.markdown.indexOf("## Targeted Profile"), draft.markdown.indexOf("## Experience"));
+  assert.match(profile, /Built Python services on Kubernetes/);
+  assert.doesNotMatch(profile, /Terraform/);
+  assert.match(draft.markdown, /Managed a customer support team/);
+  assert.match(draft.markdown, /Improved deployment reliability by 30%/);
+  assert.ok(draft.tailoringAudit.selections.some((selection) => selection.sourceLine === 5));
 });
 
 test("tailoring refuses unverified jobs", () => {

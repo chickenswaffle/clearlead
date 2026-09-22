@@ -13,6 +13,7 @@ export function tailorResume(resumeText, job, { identity = {}, profile = {} } = 
   const jobTerms = weightedJobTerms(job, qualifications.items);
   const originalLines = source.split("\n");
   const reordered = reorderBulletsWithinSections(originalLines, jobTerms, qualifications.items);
+  const targeted = addTargetedProfile(reordered.lines, originalLines, jobTerms, qualifications.items);
   const resumeTerms = new Set(terms(source));
   const matched = [...jobTerms.keys()].filter((term) => resumeTerms.has(term)).slice(0, 20);
   const absent = [...jobTerms.keys()].filter((term) => !resumeTerms.has(term)).slice(0, 12);
@@ -20,16 +21,32 @@ export function tailorResume(resumeText, job, { identity = {}, profile = {} } = 
     ...(repairedSource !== rawSource ? [{ type: "cleanup", reason: "Repaired split PDF ligatures without changing claim meaning." }] : []),
     ...(originalSource !== repairedSource ? [{ type: "cleanup", reason: "Rejoined wrapped PDF bullet lines without adding words." }] : []),
     ...(source !== originalSource ? [{ type: "identity", reason: "Restored the header only from saved application identity fields." }] : []),
+    ...targeted.changes,
     ...reordered.changes,
   ];
   const groundingNotes = [
     "This draft changes emphasis only: every line comes from your saved resume or application identity; no claims or metrics were invented.",
+    targeted.selections.length ? `Targeted profile selected ${targeted.selections.length} verbatim source lines; no employment-history content was removed.` : "No supported evidence was strong enough to create a targeted profile, so none was invented.",
     `Requirement matrix: ${qualifications.counts.met} met, ${qualifications.counts.uncertain} uncertain, ${qualifications.counts.missing} required missing, and ${qualifications.counts.preferredMissing} preferred missing.`,
     matched.length ? `Evidence already in your resume: ${matched.join(", ")}.` : "No strong keyword overlap was found; review this role carefully before applying.",
     absent.length ? `Job-language gaps not added to the resume: ${absent.join(", ")}.` : "No obvious job-language gaps were detected in the analyzed terms.",
   ];
-  const markdown = [...reordered.lines, ""].join("\n");
-  return { markdown, matchedTerms: matched, absentTerms: absent, groundingNotes, requirementMatrix: qualifications, changes, sourceLineCount: originalLines.length };
+  const markdown = [...targeted.lines, ""].join("\n");
+  return {
+    markdown,
+    matchedTerms: matched,
+    absentTerms: absent,
+    groundingNotes,
+    requirementMatrix: qualifications,
+    changes,
+    tailoringAudit: {
+      policy: "extractive-targeted-profile; source-lines-preserved; employment-history-retained",
+      selections: targeted.selections,
+      omissions: [],
+      rewrites: changes.filter((change) => change.type === "cleanup" || change.type === "identity"),
+    },
+    sourceLineCount: originalLines.length,
+  };
 }
 
 function withIdentityHeader(source, identity) {
@@ -145,4 +162,26 @@ function weightedJobTerms(job, requirements) {
 function requirementDrivers(line, requirements) {
   const lineTerms = new Set(terms(line));
   return requirements.filter((item) => terms(`${item.label} ${item.postingEvidence}`).some((term) => lineTerms.has(term))).map((item) => item.label).slice(0, 3);
+}
+function addTargetedProfile(lines, sourceLines, jobTerms, requirements) {
+  if (lines.some((line) => /^#{1,3}\s+targeted profile\s*$/i.test(line.trim()))) return { lines, changes: [], selections: [] };
+  const candidates = sourceLines.map((line, index) => {
+    const trimmed = line.trim();
+    const evidence = trimmed.replace(/^\s*(?:[-*+•] |\d+[.)] )/, "").trim();
+    const isClaim = evidence.length >= 24 && !/^#{1,6}\s|^(?:19|20)\d{2}\b|^[^@\s]+@[^@\s]+$|^https?:\/\//i.test(trimmed);
+    return { sourceLine: index + 1, evidence, score: isClaim ? scoreLine(evidence, jobTerms) : 0, drivers: requirementDrivers(evidence, requirements) };
+  }).filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.sourceLine - right.sourceLine)
+    .filter((item, index, values) => values.findIndex((candidate) => candidate.evidence.toLowerCase() === item.evidence.toLowerCase()) === index)
+    .slice(0, 2);
+  if (!candidates.length) return { lines, changes: [], selections: [] };
+  const insertAt = lines.findIndex((line) => /^##\s+/.test(line.trim()));
+  const index = insertAt >= 0 ? insertAt : Math.min(lines.length, 2);
+  const profile = ["## Targeted Profile", ...candidates.map((item) => `- ${item.evidence}`), ""];
+  const changes = candidates.map((item) => ({
+    type: "selection",
+    sourceLine: item.sourceLine,
+    reason: item.drivers.length ? `Selected verbatim evidence for the targeted profile because it supports: ${item.drivers.join(", ")}.` : "Selected verbatim evidence for the targeted profile because it has the strongest verified-posting overlap.",
+  }));
+  return { lines: [...lines.slice(0, index), ...profile, ...lines.slice(index)], changes, selections: candidates.map(({ sourceLine, evidence, drivers }) => ({ sourceLine, evidence, requirements: drivers })) };
 }

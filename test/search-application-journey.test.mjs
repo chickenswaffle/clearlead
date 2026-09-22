@@ -9,7 +9,7 @@ import { createAppServer } from "../src/server.mjs";
 test("search-first golden path reaches human final approval across restart without submitting", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-golden-journey-"));
   context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const postingUrl = "https://careers.acme.example/jobs/support-123456";
+  const postingUrl = "https://remotive.com/remote-jobs/customer-support/it-support-specialist-123456";
   const applicationUrl = "https://job-boards.greenhouse.io/acme/jobs/123456";
   const verifiedUrls = [];
   const verifyFn = async (url) => {
@@ -18,9 +18,9 @@ test("search-first golden path reaches human final approval across restart witho
     return {
       status: "live",
       url,
-      finalUrl: isPostingRefresh ? postingUrl : applicationUrl,
+      finalUrl: postingUrl,
       httpStatus: 200,
-      reason: isPostingRefresh ? "Fresh employer posting evidence." : "Verified Greenhouse application entry.",
+      reason: isPostingRefresh ? "Fresh board posting evidence." : "Verified board posting entry.",
       checkedAt: "2026-09-22T15:00:00.000Z",
     };
   };
@@ -28,14 +28,14 @@ test("search-first golden path reaches human final approval across restart witho
     source: source.type,
     board: source.token,
     error: null,
-    jobs: source.type === "jobledger" ? [{
-      source: "jobledger",
-      board: "greenhouse",
+    queryMode: source.type === "remotive" ? "full-feed-local-filtered" : "query-aligned",
+    jobs: source.type === "remotive" ? [{
+      source: "remotive",
+      board: "remote",
       company: "Acme Health",
       title: "IT Support Specialist",
       location: "Dallas, TX",
       url: postingUrl,
-      applyUrl: applicationUrl,
       postedAt: "2026-09-21T12:00:00.000Z",
       description: "Windows troubleshooting and Active Directory are required. A+ certification is preferred. This is an onsite Dallas role supporting healthcare users.",
     }] : [],
@@ -80,9 +80,21 @@ Windows, Active Directory, troubleshooting, networking, hardware, technical supp
   });
   assert.equal(prepared.body.policy.submit, "never");
   assert.equal(prepared.body.job.postingUrl, postingUrl);
-  assert.equal(prepared.body.job.applicationUrl, applicationUrl);
+  assert.equal(prepared.body.job.applicationUrl, postingUrl, "default board results begin bound to the verified board page");
   const runId = prepared.body.run.id;
   const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const initialSession = await direct(firstServer, "GET", "/api/extension/session", null, { origin, authorization: `Bearer ${pairing.body.token}` });
+  const bound = await direct(firstServer, "POST", "/api/extension/transition", {
+    runId: initialSession.body.runId,
+    pageUrl: applicationUrl,
+    pageTitle: "IT Support Specialist — Acme Health",
+    identityText: "Apply for IT Support Specialist at Acme Health",
+    referrer: postingUrl,
+    inspection: { atsFamily: "greenhouse", phase: "application", fieldCount: 5 },
+    userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(bound.status, 200);
+  assert.equal(bound.body.job.applicationUrl, applicationUrl);
   const firstSession = await direct(firstServer, "GET", "/api/extension/session", null, { origin, authorization: `Bearer ${pairing.body.token}` });
   const firstReport = await direct(firstServer, "POST", "/api/extension/run", {
     runId,

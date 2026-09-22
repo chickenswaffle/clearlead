@@ -20,7 +20,15 @@ function inspectApplicationPage() {
   const pageUrl = new URL(location.href);
   if (pageUrl.protocol !== "https:" || privateHostname(pageUrl.hostname)) throw new Error("Open the public HTTPS application page, then inspect it again.");
   const inspection = globalThis.ClearLeadAdapters?.inspectPage?.(document, pageUrl.toString()) || { atsFamily: "generic", supported: false, phase: "posting", fieldCount: 0, canRunSafeFill: false };
-  return { ...inspection, pageUrl: pageUrl.toString() };
+  const headings = [...document.querySelectorAll("h1, h2")].slice(0, 4).map((item) => String(item.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const socialTitle = String(document.querySelector?.("meta[property='og:title']")?.getAttribute("content") || "").trim();
+  return {
+    ...inspection,
+    pageUrl: pageUrl.toString(),
+    pageTitle: String(document.title || "").trim().slice(0, 180),
+    identityText: [document.title, socialTitle, ...headings].filter(Boolean).join(" | ").replace(/\s+/g, " ").slice(0, 500),
+    referrer: safePublicReferrer(document.referrer),
+  };
 }
 
 function captureVerificationEvidence() {
@@ -72,6 +80,14 @@ function privateHostname(value) {
     (parts[0] === 169 && parts[1] === 254) ||
     (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
     (parts[0] === 192 && parts[1] === 168);
+}
+function safePublicReferrer(value) {
+  try {
+    const page = new URL(String(value || ""));
+    if (page.protocol !== "https:" || privateHostname(page.hostname)) return "";
+    page.hash = "";
+    return page.toString();
+  } catch { return ""; }
 }
 
 function fillSafeFields(pack) {

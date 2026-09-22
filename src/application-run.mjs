@@ -54,6 +54,29 @@ export function resumeApplicationRun(run, pack, now = new Date().toISOString()) 
   };
 }
 
+export function bindApplicationRunTransition(run, pack, evidence = {}, now = new Date().toISOString()) {
+  if (!run || !STATUSES.has(run.status) || run.status === "complete") throw new Error("That application run cannot bind another page.");
+  const refreshed = createApplicationRun(pack);
+  return {
+    ...run,
+    status: "in_progress",
+    updatedAt: now,
+    completedAt: null,
+    job: refreshed.job,
+    resume: refreshed.resume,
+    truth: refreshed.truth,
+    allowedPages: refreshed.allowedPages,
+    navigation: refreshed.navigation,
+    events: [...(run.events || []), {
+      type: "application_page_bound",
+      at: now,
+      atsFamily: shortToken(evidence.atsFamily || "generic", 40),
+      pageUrl: normalizePage(evidence.pageUrl),
+      evidence: shortToken(evidence.evidence || "user-approved", 60),
+    }].slice(-100),
+  };
+}
+
 export function sanitizeApplicationReport(input = {}) {
   const inspection = input.inspection && typeof input.inspection === "object" ? input.inspection : {};
   const fill = input.fill && typeof input.fill === "object" ? input.fill : null;
@@ -151,8 +174,9 @@ function sanitizeNavigation(value) {
 }
 
 function compactJob(job = {}) {
-  const result = Object.fromEntries(["title", "company", "location", "source", "url", "postingUrl", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "postingUrl", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
+  const result = Object.fromEntries(["title", "company", "location", "source", "url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
   result.httpStatus = count(job.httpStatus);
+  result.handoffBound = job.handoffBound === true;
   return result;
 }
 

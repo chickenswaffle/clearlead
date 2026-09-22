@@ -30,10 +30,11 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 
 ## Current quality gate — 2026-09-22
 
-- [x] Complete regression suite: 177/177 passing
+- [x] Complete regression suite: 183/183 passing
 - [x] Dogfood preflight: runtime, resume, identity, extension pairing, and three configured public sources ready
 - [x] Live non-applying search smoke test: 158 discovered, 13 actionable, 23 hard-rejected, 57 weak/unsupported fits hidden
 - [x] Local app restarted and HTTP-smoked on the reviewed build
+- [x] Explicit one-time board-to-employer form binding with user confirmation plus referrer/job-identity evidence
 - [ ] Original independent critic re-review of the current commit
 - [ ] Third MONDO expert judgment of the critic's assessment and current commit
 - [ ] First candidate-controlled application using `FIRST_TEST.md`; candidate makes the final Submit click

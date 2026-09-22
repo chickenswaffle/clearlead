@@ -149,6 +149,9 @@ test("extension only fetches the paired localhost pack", () => {
   assert.match(popup, /http:\/\/127\.0\.0\.1:4173/);
   assert.match(popup, /authorization: `Bearer/);
   assert.match(manifest.host_permissions.join(" "), /127\.0\.0\.1:4173/);
+  assert.match(popup, /\/api\/extension\/transition/);
+  assert.match(popup, /window\.confirm/);
+  assert.match(content, /identityText/);
   assert.match(popup, /\/api\/extension\/verify/);
   assert.match(popup, /\/api\/extension\/run/);
   assert.match(popup, /make the final Submit click yourself/);

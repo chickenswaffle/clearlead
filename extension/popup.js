@@ -5,6 +5,7 @@ const result = document.querySelector("#result");
 
 document.querySelector("#save-token").addEventListener("click", saveToken);
 document.querySelector("#capture").addEventListener("click", captureCurrentPage);
+document.querySelector("#bind").addEventListener("click", bindCurrentApplicationPage);
 document.querySelector("#fill").addEventListener("click", fillCurrentPage);
 document.querySelector("#inspect").addEventListener("click", checkApplicationStatus);
 document.querySelector("#forget").addEventListener("click", forgetToken);
@@ -73,6 +74,34 @@ async function checkApplicationStatus() {
     if (!inspection || inspection.inspectionError) throw new Error(inspection?.inspectionError || "Reload the application page and try again.");
     const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, inspection);
     show(runMessage(recorded.run), recorded.run?.status === "needs_review");
+  } catch (error) { show(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+async function bindCurrentApplicationPage() {
+  const button = document.querySelector("#bind");
+  button.disabled = true;
+  try {
+    const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
+    if (!clearleadToken) throw new Error("Pair the extension first.");
+    const sessionResponse = await fetch(`${SERVER}/api/extension/session`, { headers: { authorization: `Bearer ${clearleadToken}` } });
+    const session = await sessionResponse.json().catch(() => ({}));
+    if (!sessionResponse.ok || !session.runId) throw new Error(session.error || "Prepare a verified job in ClearLead before binding a page.");
+    if (session.handoff?.bound) throw new Error("This run already has a bound employer application page.");
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !/^https:\/\//i.test(String(tab.url || ""))) throw new Error("Open the public HTTPS employer application form first.");
+    const inspection = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+    if (!inspection || inspection.inspectionError) throw new Error(inspection?.inspectionError || "Reload the application page and try again.");
+    if (inspection.phase !== "application" || inspection.fieldCount < 1) throw new Error("Open the employer's application form—not only the posting—before binding.");
+    if (!window.confirm(`Bind this application page to ${session.job.company} — ${session.job.title}? ClearLead will allow safe-field fill only for this evidenced job flow.`)) throw new Error("Application-page binding was canceled.");
+    const response = await fetch(`${SERVER}/api/extension/transition`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${clearleadToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ runId: session.runId, pageUrl: tab.url, pageTitle: inspection.pageTitle, identityText: inspection.identityText, referrer: inspection.referrer, inspection, userApproved: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `ClearLead returned HTTP ${response.status}.`);
+    show(`${data.message} Nothing was filled or submitted.`);
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }

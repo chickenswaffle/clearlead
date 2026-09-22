@@ -150,6 +150,74 @@ test("Workday packs carry a job-bound multi-page navigation scope", async (conte
   });
 });
 
+test("a user-approved board handoff binds one evidenced external ATS form", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-board-handoff-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const postingUrl = "https://remotive.com/remote-jobs/customer-support/it-support-specialist-123";
+  const applicationUrl = "https://jobs.lever.co/acme/it-support-123/apply";
+  const server = createAppServer({
+    dataDir,
+    verifyFn: async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Board posting is live.", checkedAt: "2026-09-22T12:00:00.000Z" }),
+    discoverSourceFn: async (source) => ({ source: source.type, board: source.token, error: null, queryMode: source.type === "remotive" ? "full-feed-local-filtered" : "query-aligned", jobs: source.type === "remotive" ? [{ source: "remotive", board: "remote", company: "Acme", title: "IT Support Specialist", location: "Remote", url: postingUrl, description: "Windows troubleshooting and technical support for customers." }] : [] }),
+  });
+  await direct(server, "POST", "/api/resume", { text: "IT support specialist with extensive Windows troubleshooting, technical support, customer service, ticket documentation, hardware setup, network support, account maintenance, incident ownership, device deployment, software support, and reliable issue resolution experience.", filename: "resume.md" });
+  await direct(server, "POST", "/api/application-profile", { fullName: "Taylor Example", email: "taylor@example.com" });
+  const search = await direct(server, "POST", "/api/search/smart", { prompt: "IT support jobs remote", autoVerify: true, verifyLimit: 3 });
+  const verificationId = search.body.jobs[0].verification.verificationId;
+  const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId });
+  assert.equal(prepared.body.job.applicationUrl, postingUrl);
+  const pairing = await direct(server, "POST", "/api/extension/pair", {});
+  const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const session = await direct(server, "GET", "/api/extension/session", null, { origin, authorization: `Bearer ${pairing.body.token}` });
+  const rejected = await direct(server, "POST", "/api/extension/transition", {
+    runId: session.body.runId, pageUrl: "https://evil.example/apply/999", pageTitle: "Unrelated application", identityText: "Unrelated application", referrer: "", inspection: { phase: "application", fieldCount: 3 }, userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.error, /could not prove/i);
+  const bound = await direct(server, "POST", "/api/extension/transition", {
+    runId: session.body.runId, pageUrl: applicationUrl, pageTitle: "IT Support Specialist — Acme", identityText: "Apply for IT Support Specialist at Acme", referrer: "", inspection: { atsFamily: "lever", phase: "application", fieldCount: 5 }, userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(bound.status, 200);
+  assert.equal(bound.body.job.applicationUrl, applicationUrl);
+  assert.equal(bound.body.job.resumeJobUrl, postingUrl);
+  assert.equal(bound.body.handoff.bound, true);
+  const repeat = await direct(server, "POST", "/api/extension/transition", {
+    runId: session.body.runId, pageUrl: "https://evil.example/apply/999", inspection: { phase: "application", fieldCount: 2 }, userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(repeat.status, 400);
+  assert.match(repeat.body.error, /already bound/i);
+});
+
+test("explicit binding carries a generic short-id posting into its same-origin form", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-short-id-handoff-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const postingUrl = "https://careers.example.com/jobs/123";
+  const applicationUrl = "https://careers.example.com/apply/123";
+  const server = createAppServer({
+    dataDir,
+    verifyFn: async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Posting is live.", checkedAt: "2026-09-22T12:00:00.000Z" }),
+    discoverFn: async (board) => ({ source: "greenhouse", board, error: null, jobs: [{ source: "greenhouse", board, company: "Acme", title: "IT Support Specialist", location: "Dallas", url: postingUrl, description: "Windows troubleshooting and user support." }] }),
+  });
+  await direct(server, "POST", "/api/resume", { text: "IT support specialist with extensive Windows troubleshooting, user support, customer service, ticket documentation, hardware setup, network support, account maintenance, incident ownership, device deployment, software support, and reliable issue resolution experience.", filename: "resume.md" });
+  await direct(server, "POST", "/api/application-profile", { fullName: "Taylor Example", email: "taylor@example.com" });
+  const search = await direct(server, "POST", "/api/search", { boards: ["acme"], query: "IT support specialist", autoVerify: true, verifyLimit: 1 });
+  const prepared = await direct(server, "POST", "/api/application/prepare", { verificationId: search.body.jobs[0].verification.verificationId });
+  const pairing = await direct(server, "POST", "/api/extension/pair", {});
+  const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const session = await direct(server, "GET", "/api/extension/session", null, { origin, authorization: `Bearer ${pairing.body.token}` });
+  const bound = await direct(server, "POST", "/api/extension/transition", {
+    runId: prepared.body.id, pageUrl: applicationUrl, pageTitle: "Application", identityText: "Application", referrer: postingUrl, inspection: { atsFamily: "generic", phase: "application", fieldCount: 4 }, userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(bound.status, 200);
+  assert.equal(bound.body.navigation.pathPrefix, "/apply/123");
+  const nextSession = await direct(server, "GET", "/api/extension/session", null, { origin, authorization: `Bearer ${pairing.body.token}` });
+  const report = await direct(server, "POST", "/api/extension/run", {
+    runId: prepared.body.id, pageUrl: `${applicationUrl}/step-two`, inspection: { phase: "application", fieldCount: 4, emptyRequiredCount: 0, submitControlCount: 1 },
+  }, { origin, authorization: `Bearer ${nextSession.body.capability}` });
+  assert.equal(report.status, 200);
+  assert.equal(report.body.run.status, "ready_for_final_approval");
+});
+
 test("manual verification keeps ranked metadata across harmless URL normalization", async (context) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-ranked-manual-"));
   context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

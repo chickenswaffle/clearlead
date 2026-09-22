@@ -88,8 +88,9 @@ export function createAppServer({
     const extensionSessionApi = url.pathname === "/api/extension/session";
     const extensionPackApi = url.pathname === "/api/extension/pack";
     const extensionVerifyApi = url.pathname === "/api/extension/verify";
+    const extensionTransitionApi = url.pathname === "/api/extension/transition";
     const extensionRunApi = url.pathname === "/api/extension/run";
-    const extensionTokenApi = extensionSessionApi || extensionVerifyApi;
+    const extensionTokenApi = extensionSessionApi || extensionVerifyApi || extensionTransitionApi;
     const extensionCapabilityApi = extensionPackApi || extensionRunApi;
     const extensionApi = extensionTokenApi || extensionCapabilityApi;
     const extensionRequestOrigin = extensionOrigin(req);
@@ -310,6 +311,7 @@ export function createAppServer({
           groundingNotes: saved.groundingNotes,
           requirementMatrix: saved.requirementMatrix,
           changes: saved.changes,
+          tailoringAudit: saved.tailoringAudit,
           preview: saved.markdown,
         };
         return json(res, 200, verified.tailoredDraft);
@@ -456,7 +458,7 @@ export function createAppServer({
         const capability = randomBytes(32).toString("base64url");
         currentAutofillPack.capabilityHash = hashToken(capability);
         currentAutofillPack.capabilityOrigin = extensionRequestOrigin;
-        return json(res, 200, { paired: true, packReady: true, capability, expiresAt: new Date(currentAutofillPack.expiresAt).toISOString(), job: currentAutofillPack.job });
+        return json(res, 200, { paired: true, packReady: true, capability, runId: currentAutofillPack.id, expiresAt: new Date(currentAutofillPack.expiresAt).toISOString(), job: currentAutofillPack.job, handoff: currentAutofillPack.handoff });
       }
       if (req.method === "GET" && url.pathname === "/api/extension/pack") {
         if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 404, { error: "No current autofill pack. Prepare one from a verified job in ClearLead." });
@@ -468,6 +470,13 @@ export function createAppServer({
         if (!currentAutofillPack || request.runId !== currentAutofillPack.id) throw new Error("That application run is no longer the active autofill session.");
         const run = store.recordApplicationRunReport(request.runId, request);
         return json(res, 200, { run });
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/transition") {
+        const request = await body(req);
+        const bound = bindApplicationTransition(currentAutofillPack, request);
+        currentAutofillPack = bound.pack;
+        const run = store.bindApplicationRunTransition(currentAutofillPack.id, currentAutofillPack, bound.evidence);
+        return json(res, 200, { ...publicAutofillPack(currentAutofillPack), run, message: "This application form is now bound to the prepared job. Review the page, then fill safe fields." });
       }
       if (req.method === "POST" && url.pathname === "/api/extension/verify") {
         const request = await body(req);
@@ -601,6 +610,7 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
   verifiedUrl.hash = "";
   const applicationUrl = verifiedUrl.toString();
   const postingUrl = safeHttpsUrl(verified.job?.postingUrl || verified.job?.url || verified.lead.url) || applicationUrl;
+  const resumeJobUrl = safeHttpsUrl(verified.job?.resumeJobUrl) || applicationUrl;
   const allowedPages = [`${verifiedUrl.origin}${normalizedPath(verifiedUrl.pathname)}${verifiedUrl.search}`];
   const navigation = applicationNavigationScope(verifiedUrl);
   const safeProfile = Object.fromEntries([
@@ -611,9 +621,10 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     id: runId || randomUUID(),
     preparedAt: new Date().toISOString(),
     expiresAt: Date.now() + 10 * 60 * 1000,
-    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: verified.job?.url || postingUrl, postingUrl, finalUrl: applicationUrl, applicationUrl, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
+    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: verified.job?.url || postingUrl, postingUrl, resumeJobUrl, finalUrl: applicationUrl, applicationUrl, handoffBound: verified.job?.handoffBound === true, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
     allowedPages,
     navigation,
+    handoff: { canBind: verified.job?.handoffBound !== true, bound: verified.job?.handoffBound === true },
     resume: resumeDraft,
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
@@ -625,11 +636,38 @@ function restoreApplicationResume(store, run) {
   if (!saved) return null;
   const item = saved.draftId ? store.tailoredFile(saved.draftId) : saved.kitId ? store.applicationKitFile(saved.kitId, "resume") : null;
   if (!item) throw new Error("The selected resume for this application is no longer available. Verify the role and select a resume again.");
-  if (!sameJobUrl(item.jobUrl, run.job.applicationUrl)) throw new Error("The selected resume no longer matches this application. Verify the role and build a new tailored resume.");
+  if (!sameJobUrl(item.jobUrl, run.job.resumeJobUrl || run.job.applicationUrl)) throw new Error("The selected resume no longer matches this application. Verify the role and build a new tailored resume.");
   return { ...saved };
 }
 function publicAutofillPack(pack) {
-  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, navigation: pack.navigation, policy: pack.policy };
+  return { id: pack.id, preparedAt: pack.preparedAt, expiresAt: new Date(pack.expiresAt).toISOString(), job: pack.job, resume: pack.resume, truth: pack.truth, allowedPages: pack.allowedPages, navigation: pack.navigation, handoff: pack.handoff, policy: pack.policy };
+}
+function bindApplicationTransition(pack, input = {}) {
+  if (!pack || pack.expiresAt <= Date.now()) throw new Error("Prepare the verified job again before binding an application page.");
+  if (input.runId !== pack.id) throw new Error("This page does not belong to the active application run.");
+  if (pack.handoff?.bound || pack.job?.handoffBound) throw new Error("An employer application page is already bound to this run.");
+  if (input.userApproved !== true) throw new Error("Confirm the job-bound application page before binding it.");
+  const target = new URL(String(input.pageUrl || ""));
+  if (target.protocol !== "https:") throw new Error("Only a public HTTPS application page can be bound.");
+  target.hash = "";
+  const inspection = input.inspection && typeof input.inspection === "object" ? input.inspection : {};
+  if (inspection.phase !== "application" || Number(inspection.fieldCount) < 1) throw new Error("Open the employer's application form before binding this page.");
+  const referrerBound = [pack.job.applicationUrl, pack.job.postingUrl, ...(pack.allowedPages || [])].some((page) => sameJobUrl(input.referrer, page));
+  const identityBound = applicationIdentityMatches(pack.job, `${input.pageTitle || ""} ${input.identityText || ""}`);
+  if (!referrerBound && !identityBound) throw new Error("ClearLead could not prove that this application form belongs to the prepared job. Return to the posting and open Apply again.");
+  const targetUrl = target.toString();
+  const ats = atsHostScope(target.hostname);
+  const job = { ...pack.job, applicationUrl: targetUrl, finalUrl: targetUrl, handoffBound: true };
+  const boundPack = {
+    ...pack,
+    job,
+    allowedPages: [targetUrl],
+    navigation: applicationNavigationScope(target),
+    handoff: { canBind: false, bound: true },
+    capabilityHash: "",
+    capabilityOrigin: "",
+  };
+  return { pack: boundPack, evidence: { pageUrl: targetUrl, atsFamily: ats.family, evidence: referrerBound ? "approved-referrer" : "approved-job-identity" } };
 }
 function applicationNavigationScope(page) {
   const pathname = normalizedPath(page.pathname);
@@ -649,6 +687,18 @@ function atsHostScope(hostname) {
   ];
   const match = families.find(([, suffix]) => hostname === suffix || hostname.endsWith(`.${suffix}`));
   return match ? { family: match[0], suffix: match[1] } : { family: "generic", suffix: "" };
+}
+function applicationIdentityMatches(job, evidence) {
+  const text = String(evidence || "").toLowerCase();
+  const stop = new Set(["and", "the", "for", "with", "job", "role", "application", "careers", "career", "at", "inc", "llc", "company"]);
+  const tokens = (value) => [...new Set(String(value || "").toLowerCase().match(/[a-z0-9+#]{2,}/g) || [])].filter((token) => !stop.has(token));
+  const title = tokens(job.title);
+  const company = tokens(job.company);
+  const titleMatches = title.filter((token) => text.includes(token)).length;
+  const companyMatches = company.filter((token) => text.includes(token)).length;
+  const titleBound = title.length > 0 && titleMatches >= Math.min(2, title.length) && titleMatches / title.length >= 0.6;
+  const companyBound = company.length > 0 && companyMatches >= Math.min(1, company.length);
+  return titleBound || (companyBound && titleMatches >= 1);
 }
 function safeHttpsUrl(value) { try { const page = new URL(value); return page.protocol === "https:" ? page.toString() : ""; } catch { return ""; } }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }
