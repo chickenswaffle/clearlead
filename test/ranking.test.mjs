@@ -247,3 +247,19 @@ test("ordinary as prose cannot satisfy an associate degree gate", () => {
   assert.equal(match.qualifications.items.find((item) => item.code === "education")?.status, "missing");
   assert.equal(match.decision.code, "skip");
 });
+
+test("canonical year-first domain requirements cannot rank apply", () => {
+  for (const description of [
+    "Support Windows users. 5+ years of experience in IT support",
+    "Support Windows users. 5+ years experience in IT support",
+    "Support Windows users. At least 5+ years of IT support experience",
+    "Support Windows users. 5+ years of IT support experience working with Windows",
+  ]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/16", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT Support Analyst\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+    assert.equal(match.decision.code, "skip", description);
+  }
+});

@@ -245,3 +245,24 @@ test("search rejects qualified-and, someone-who-has, and plain-as degree false e
   assert.equal(result.funnel.fitSkipped, 3);
   assert.ok(result.allJobs.every((job) => job.match.qualifications.counts.missing === 1));
 });
+
+test("search rejects canonical flattened year-first requirements but retains marketing history", async () => {
+  const requirements = [
+    "5+ years of experience in IT support",
+    "5+ years experience in IT support",
+    "At least 5+ years of IT support experience",
+    "5+ years of IT support experience working with Windows",
+  ];
+  const companies = ["Alpha Support", "Bravo Support", "Charlie Support", "Delta Support"];
+  const jobs = [
+    ...requirements.map((description, index) => ({ title: "IT Support Specialist", company: companies[index], location: "Dallas", url: `https://jobs.lever.co/requirement/${index}`, postedAt: "2026-09-21T00:00:00Z", description: `Support Windows users. ${description}` })),
+    { title: "IT Support Specialist", company: "Marketing Control", location: "Dallas", url: "https://jobs.lever.co/marketing/control", postedAt: "2026-09-21T00:00:00Z", description: "Support Windows users. 10 years of IT support experience powers Acme customer service." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Analyst\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(result.jobs.map((job) => job.company), ["Marketing Control"]);
+  assert.equal(result.funnel.fitSkipped, 4);
+});

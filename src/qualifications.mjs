@@ -234,8 +234,8 @@ function experienceRequirementContext(evidence, section, years, matchedText) {
     || /\byou\s+should\s+have\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+who\s+(?:has|have)\b/i.test(evidence)
-    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
-    || (years <= 15 && sameRequirementText(text, matchedText))
+    || (years <= 15 && new RegExp(`^(?:at\\s+least\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
+    || yearFirstCandidateTenure(text, years, matchedText)
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
@@ -252,6 +252,16 @@ function splitRequirementClauses(value) {
   }).map((clause) => clause.trim()).filter(Boolean);
 }
 function sameRequirementText(evidence, matchedText) { return normalize(evidence).replace(/[.!?]+$/, "") === normalize(matchedText).replace(/[.!?]+$/, ""); }
+function yearFirstCandidateTenure(evidence, years, matchedText) {
+  if (years > 15 || !new RegExp(`^(?:at\\s+least\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(evidence)) return false;
+  const cleanEvidence = normalize(evidence).replace(/[.!?]+$/, "");
+  const cleanMatch = normalize(matchedText).replace(/[.!?]+$/, "");
+  if (sameRequirementText(cleanEvidence.replace(/^at\s+least\s+/i, ""), cleanMatch)) return true;
+  const matchAt = cleanEvidence.toLowerCase().indexOf(cleanMatch.toLowerCase());
+  if (matchAt < 0) return false;
+  const remainder = cleanEvidence.slice(matchAt + cleanMatch.length).trim();
+  return /^(?:in|with|working\s+with|supporting|using|focused\s+on|related\s+to)\b/i.test(remainder);
+}
 function evidenceLine(value, pattern) { return String(value || "").split(/\r?\n|[,;]+/).map((item) => item.trim()).find((item) => pattern.test(item)) || ""; }
 function containsToken(value, token) { return new RegExp(`(?:^|[^a-z0-9])${escapeRegex(token)}(?:$|[^a-z0-9+])`, "i").test(String(value)); }
 function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

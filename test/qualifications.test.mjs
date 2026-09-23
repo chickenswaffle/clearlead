@@ -226,3 +226,18 @@ test("plain as is not an associate degree abbreviation but uppercase academic fo
     assert.match(item?.candidateEvidence || "", new RegExp(abbreviation.replaceAll(".", "\\.")));
   }
 });
+
+test("canonical year-first domain requirements survive flattened posting prose", () => {
+  for (const description of [
+    "5+ years of experience in IT support",
+    "5+ years experience in IT support",
+    "At least 5+ years of IT support experience",
+    "5+ years of IT support experience working with Windows",
+  ]) {
+    const result = analyzeQualifications({ description }, { text: "Support analyst\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    assert.equal(result.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+    assert.equal(result.counts.missing, 1, description);
+  }
+  const marketing = analyzeQualifications({ description: "10 years of IT support experience powers Acme customer service." }, { text: "IT support" });
+  assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
+});

@@ -30,7 +30,7 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 
 ## Current quality gate — 2026-09-22
 
-- [x] Complete regression suite: 220/220 passing
+- [x] Complete regression suite: 223/223 passing
 - [x] Dogfood preflight: runtime, resume, identity, extension pairing, and three configured public sources ready
 - [x] Live non-applying search smoke test: 158 discovered, 13 actionable, 23 hard-rejected, 57 weak/unsupported fits hidden
 - [x] Local app restarted and HTTP-smoked on the reviewed build
