@@ -158,3 +158,20 @@ test("search hides unsupported experience gates but retains explicitly negated g
   assert.equal(result.allJobs.find((job) => job.company === "Open Corp")?.match.qualifications.counts.missing, 0);
   assert.equal(result.funnel.fitSkipped, 1);
 });
+
+test("search keeps clause polarity and does not hide company tenure or optional credentials", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "Mixed Corp", location: "Dallas", url: "https://jobs.lever.co/mixed/1", postedAt: "2026-09-21T00:00:00Z", description: "No bachelor's degree is required, but 3+ years in IT support is required." },
+    { title: "IT Support Specialist", company: "History Corp", location: "Dallas", url: "https://jobs.lever.co/history/2", postedAt: "2026-09-21T00:00:00Z", description: "Our company brings 25 years in IT support to customers." },
+    { title: "IT Support Specialist", company: "Optional Corp", location: "Dallas", url: "https://jobs.lever.co/optional/3", postedAt: "2026-09-21T00:00:00Z", description: "Support Windows users. A+ certification is optional." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Associate\n2025 - Present\nSupported Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(new Set(result.jobs.map((job) => job.company)), new Set(["History Corp", "Optional Corp"]));
+  assert.equal(result.allJobs.find((job) => job.company === "Mixed Corp")?.match.decision.code, "skip");
+  assert.equal(result.allJobs.find((job) => job.company === "History Corp")?.match.eligibility.warnings.length, 0);
+  assert.equal(result.funnel.fitSkipped, 1);
+});

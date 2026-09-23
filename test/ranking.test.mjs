@@ -135,3 +135,27 @@ test("negated posting requirements do not force a skip decision", () => {
   assert.equal(match.qualifications.counts.missing, 0);
   assert.notEqual(match.decision.code, "skip");
 });
+
+test("a negated degree clause cannot erase a separate experience requirement", () => {
+  const match = rankJob({
+    title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/4", postedAt: "2026-09-21T00:00:00Z",
+    description: "No bachelor's degree is required, but 3+ years in IT support is required.",
+  }, {
+    resume: { text: "IT Support Associate\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.counts.missing, 1);
+  assert.equal(match.decision.code, "skip");
+});
+
+test("company tenure and optional credentials do not force a skip decision", () => {
+  for (const description of ["Our company brings 25 years in IT support to customers.", "A+ certification is optional."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/5", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT support for Windows users", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 0, description);
+    assert.equal(match.eligibility.warnings.some((warning) => warning.code === "heavy-experience-requirement"), false, description);
+    assert.notEqual(match.decision.code, "skip", description);
+  }
+});

@@ -27,9 +27,9 @@ const CLEARANCE_EVIDENCE = /\b(?:active|current)\s+(?:(?:top\s+secret|secret|ts\
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const YEAR_VALUE = "(?<years>\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
 const EXPERIENCE_REQUIREMENTS = [
-  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"),
-  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|$)){1,8}`, "gi"),
-  new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"),
+  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"), contextual: false },
+  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|$)){1,8}`, "gi"), contextual: true },
+  { pattern: new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"), contextual: false },
 ];
 
 export function evaluateJobEligibility(job = {}, {
@@ -66,7 +66,7 @@ export function evaluateJobEligibility(job = {}, {
     reject(reasons, checks, "seniority-mismatch", "The search is entry-level, but the job title is explicitly senior or leadership level.");
   } else checks.push({ code: "seniority", passed: true });
 
-  const requestedYears = maximumExperienceRequirement(jobText);
+  const requestedYears = maximumExperienceRequirement([job.title, job.description].filter(Boolean).join("\n"));
   if (plan.seniority === "entry" && requestedYears >= 5) {
     warnings.push({ code: "heavy-experience-requirement", reason: `The posting asks for ${requestedYears}+ years of experience despite an entry-level search. Review whether the resume proves equivalent experience before spending time applying.` });
     checks.push({ code: "experience-requirement", passed: null, requestedYears });
@@ -129,11 +129,13 @@ function clean(value) { return String(value || "").replace(/\s+/g, " ").trim(); 
 function unique(values) { return [...new Set(values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean))]; }
 function maximumExperienceRequirement(value) {
   let maximum = 0;
-  for (const segment of String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/)) {
-    if (postingRequirementIsNegated(segment)) continue;
-    for (const pattern of EXPERIENCE_REQUIREMENTS) {
+  for (const clause of requirementClauses(value)) {
+    if (postingRequirementIsNegated(clause) || organizationHistoryStatement(clause)) continue;
+    const section = qualificationSectionFor(clause, value);
+    for (const { pattern, contextual } of EXPERIENCE_REQUIREMENTS) {
+      if (contextual && !experienceRequirementContext(clause, section)) continue;
       pattern.lastIndex = 0;
-      for (const match of segment.matchAll(pattern)) {
+      for (const match of clause.matchAll(pattern)) {
         const rawYears = match.groups?.years || "";
         maximum = Math.max(maximum, Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0);
       }
@@ -145,5 +147,32 @@ function postingRequirementIsNegated(value) {
   return /\bnot\s+(?:strictly\s+)?required\b/i.test(value)
     || /\bno\b[^.!?;]{0,100}\b(?:is|are|will be)?\s*required\b/i.test(value)
     || /\b(?:do|does)\s+not\s+require\b/i.test(value)
-    || /\bwithout\s+requiring\b/i.test(value);
+    || /\bwithout\s+requiring\b/i.test(value)
+    || /\bnot\s+mandatory\b/i.test(value)
+    || /\boptional\b/i.test(value)
+    || /\bno\s+need\s+(?:for|to\s+have)\b/i.test(value);
+}
+function requirementClauses(value) {
+  return String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/)
+    .flatMap((item) => item.split(/\s*(?:,\s*)?\bbut\b\s*/i))
+    .map((item) => item.trim()).filter(Boolean);
+}
+function qualificationSectionFor(evidence, context) {
+  const target = clean(evidence).toLowerCase();
+  let section = "";
+  for (const rawLine of String(context || "").split(/\r?\n/)) {
+    const line = clean(rawLine);
+    if (/^(?:#{1,4}\s*)?(?:minimum|required|basic|essential) qualifications?\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?(?:requirements?|must haves?|what you(?:'ll| will)? need)\s*:?.*$/i.test(line)) section = "required";
+    else if (/^(?:#{1,4}\s*)?(?:preferred qualifications?|nice to have|preferred)\s*:?.*$/i.test(line)) section = "preferred";
+    else if (/^(?:#{1,4}\s*)?(?:responsibilities|duties|benefits|about(?: us| the role)?|job description|what you(?:'ll| will)? do|skills|experience|education|schedule|location|compensation)\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?[a-z][a-z &'/-]{2,80}:\s*$/i.test(line)) section = "";
+    if (target && line.toLowerCase().includes(target)) return section;
+  }
+  return "";
+}
+function experienceRequirementContext(evidence, section) {
+  return Boolean(section) || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidate|applicant|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence);
+}
+function organizationHistoryStatement(evidence) {
+  return /\b(?:our|the)\s+(?:company|organization|business|team|leadership|founder)\b/i.test(evidence)
+    || /\b(?:company|organization|business|team|leadership)\s+(?:brings?|has|have|offers?|provides?)\b/i.test(evidence);
 }

@@ -102,3 +102,25 @@ test("posting-side negation does not invent missing degree or certification gate
   assert.equal(result.items.some((item) => item.code === "education"), false);
   assert.equal(result.counts.missing, 0);
 });
+
+test("requirement polarity is scoped to contrast clauses", () => {
+  const mixedEducation = analyzeQualifications({ description: "No bachelor's degree is required, but 3+ years in IT support is required." }, { text: "Support associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+  assert.equal(mixedEducation.items.some((item) => item.code === "education"), false);
+  assert.equal(mixedEducation.items.find((item) => item.code === "experience-years")?.status, "missing");
+
+  const mixedCertifications = analyzeQualifications({ description: "A+ certification is not required, but Network+ certification is required." }, { text: "IT support" });
+  assert.equal(mixedCertifications.items.some((item) => item.code === "cert-a"), false);
+  assert.equal(mixedCertifications.items.find((item) => item.code === "cert-network")?.status, "missing");
+});
+
+test("company history and optional credentials do not become candidate gates", () => {
+  for (const description of [
+    "Our company brings 25 years in IT support to customers.",
+    "Our leadership team has 10 years supporting Windows customers.",
+    "A+ certification is optional.",
+  ]) {
+    const result = analyzeQualifications({ description }, { text: "IT support" });
+    assert.equal(result.items.some((item) => item.code === "experience-years"), false, description);
+    assert.equal(result.counts.missing, 0, description);
+  }
+});
