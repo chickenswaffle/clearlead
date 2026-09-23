@@ -167,16 +167,19 @@ function addTargetedProfile(lines, sourceLines, jobTerms, requirements) {
   if (lines.some((line) => /^#{1,3}\s+targeted profile\s*$/i.test(line.trim()))) return { lines, changes: [], selections: [] };
   const candidates = sourceLines.map((line, index) => {
     const trimmed = line.trim();
+    const isBullet = /^\s*(?:[-*+•] |\d+[.)] )/.test(line);
     const evidence = trimmed.replace(/^\s*(?:[-*+•] |\d+[.)] )/, "").trim();
-    const isClaim = evidence.length >= 24 && !/^#{1,6}\s|^(?:19|20)\d{2}\b|^[^@\s]+@[^@\s]+$|^https?:\/\//i.test(trimmed);
+    const neighboringDate = [sourceLines[index - 1], sourceLines[index + 1]].some((value) => /\b(?:19|20)\d{2}\b/.test(String(value || "")));
+    const looksLikeRoleHeader = neighboringDate || (/[|•]/.test(trimmed) && !/[.!?]$/.test(trimmed));
+    const narrativeClaim = evidence.split(/\s+/).length >= 6 && /\b(?:built|created|delivered|developed|experienced|implemented|improved|led|managed|provided|resolved|specialist|supported|troubleshot)\b/i.test(evidence);
+    const isClaim = evidence.length >= 24 && (isBullet || narrativeClaim) && !looksLikeRoleHeader && !/^#{1,6}\s|^(?:19|20)\d{2}\b|^[^@\s]+@[^@\s]+$|^https?:\/\//i.test(trimmed);
     return { sourceLine: index + 1, evidence, score: isClaim ? scoreLine(evidence, jobTerms) : 0, drivers: requirementDrivers(evidence, requirements) };
   }).filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score || left.sourceLine - right.sourceLine)
     .filter((item, index, values) => values.findIndex((candidate) => candidate.evidence.toLowerCase() === item.evidence.toLowerCase()) === index)
     .slice(0, 2);
   if (!candidates.length) return { lines, changes: [], selections: [] };
-  const insertAt = lines.findIndex((line) => /^##\s+/.test(line.trim()));
-  const index = insertAt >= 0 ? insertAt : Math.min(lines.length, 2);
+  const index = targetedProfileInsertionIndex(lines);
   const profile = ["## Targeted Profile", ...candidates.map((item) => `- ${item.evidence}`), ""];
   const changes = candidates.map((item) => ({
     type: "selection",
@@ -184,4 +187,16 @@ function addTargetedProfile(lines, sourceLines, jobTerms, requirements) {
     reason: item.drivers.length ? `Selected verbatim evidence for the targeted profile because it supports: ${item.drivers.join(", ")}.` : "Selected verbatim evidence for the targeted profile because it has the strongest verified-posting overlap.",
   }));
   return { lines: [...lines.slice(0, index), ...profile, ...lines.slice(index)], changes, selections: candidates.map(({ sourceLine, evidence, drivers }) => ({ sourceLine, evidence, requirements: drivers })) };
+}
+function targetedProfileInsertionIndex(lines) {
+  const section = lines.findIndex((line) => /^##\s+/.test(line.trim()));
+  if (section >= 0 && section <= 5) return section;
+  if (!/^#\s+/.test(String(lines[0] || "").trim())) return section >= 0 ? section : 0;
+  let index = 1;
+  while (index < lines.length && !lines[index].trim()) index += 1;
+  if (index < lines.length && /@|https?:\/\/|linkedin|github|\+?\d[\d ().-]{7,}|\s[|•]\s/i.test(lines[index])) {
+    index += 1;
+    while (index < lines.length && !lines[index].trim()) index += 1;
+  }
+  return Math.min(index, lines.length);
 }

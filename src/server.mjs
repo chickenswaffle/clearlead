@@ -689,16 +689,16 @@ function atsHostScope(hostname) {
   return match ? { family: match[0], suffix: match[1] } : { family: "generic", suffix: "" };
 }
 function applicationIdentityMatches(job, evidence) {
-  const text = String(evidence || "").toLowerCase();
   const stop = new Set(["and", "the", "for", "with", "job", "role", "application", "careers", "career", "at", "inc", "llc", "company"]);
   const tokens = (value) => [...new Set(String(value || "").toLowerCase().match(/[a-z0-9+#]{2,}/g) || [])].filter((token) => !stop.has(token));
   const title = tokens(job.title);
   const company = tokens(job.company);
-  const titleMatches = title.filter((token) => text.includes(token)).length;
-  const companyMatches = company.filter((token) => text.includes(token)).length;
+  const evidenceTokens = new Set(tokens(evidence));
+  const titleMatches = title.filter((token) => evidenceTokens.has(token)).length;
+  const companyMatches = company.filter((token) => evidenceTokens.has(token)).length;
   const titleBound = title.length > 0 && titleMatches >= Math.min(2, title.length) && titleMatches / title.length >= 0.6;
   const companyBound = company.length > 0 && companyMatches >= Math.min(1, company.length);
-  return titleBound || (companyBound && titleMatches >= 1);
+  return titleBound && companyBound;
 }
 function safeHttpsUrl(value) { try { const page = new URL(value); return page.protocol === "https:" ? page.toString() : ""; } catch { return ""; } }
 function normalizedPath(value) { const pathValue = String(value || "/").replace(/\/{2,}/g, "/"); return pathValue.length > 1 ? pathValue.replace(/\/+$/, "") : "/"; }

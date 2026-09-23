@@ -54,6 +54,14 @@ test("local tailoring materially changes positioning with an extractive profile 
   assert.ok(draft.tailoringAudit.selections.some((selection) => selection.sourceLine === 5));
 });
 
+test("targeted profile never promotes a role or employer header as candidate evidence", () => {
+  const headed = `# Taylor Example\n\nSupport Engineer\nAcme Corporation • Dallas, TX\n2022 - Present\n- Resolved Windows support requests and documented outcomes.\n- Managed Active Directory accounts for end users.\n\n## Skills\nWindows and Active Directory`;
+  const draft = tailorResume(headed, { status: "live", title: "Support Engineer", description: "Windows and Active Directory support required." });
+  const profile = draft.markdown.slice(draft.markdown.indexOf("## Targeted Profile")).split("\n\n")[0];
+  assert.doesNotMatch(profile, /Acme Corporation|Dallas, TX/);
+  assert.match(profile, /Windows support requests|Active Directory accounts/);
+});
+
 test("tailoring refuses unverified jobs", () => {
   assert.throws(() => tailorResume(resume, { status: "unverified", title: "Role" }), /verified-live/);
 });

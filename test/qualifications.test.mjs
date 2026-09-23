@@ -73,3 +73,9 @@ test("negated availability conflicts with required weekend and overnight schedul
     assert.match(schedule.explanation, /conflicts/i);
   }
 });
+
+test("required heading context stops at the next unrelated section", () => {
+  const result = analyzeQualifications({ description: "Minimum Qualifications:\nActive Directory\nPreferred Skills:\nKubernetes" }, { text: "Active Directory" });
+  assert.equal(result.items.find((item) => item.code === "skill-active-directory").importance, "required");
+  assert.equal(result.items.find((item) => item.code === "skill-kubernetes").importance, "preferred");
+});

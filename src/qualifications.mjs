@@ -153,15 +153,16 @@ function mentionedCertifications(jobText) { return CERTIFICATIONS.filter((certif
 function importanceOf(evidence, fallback, context = "") {
   if (PREFERRED.test(evidence)) return "preferred";
   if (REQUIRED.test(evidence)) return "required";
-  const flatContext = normalize(context);
-  const flatEvidence = normalize(evidence);
-  const evidenceIndex = flatEvidence ? flatContext.indexOf(flatEvidence) : -1;
-  if (evidenceIndex < 0) return fallback;
-  const prefix = flatContext.slice(Math.max(0, evidenceIndex - 500), evidenceIndex);
-  const requiredHeader = lastPatternIndex(prefix, /\b(?:minimum|required|basic|essential) qualifications?\s*:|\brequirements?\s*:|\bmust haves?\s*:|\bwhat you(?:'ll| will)? need\s*:/gi);
-  const preferredHeader = lastPatternIndex(prefix, /\b(?:preferred qualifications?|nice to have|preferred)\s*:/gi);
-  if (requiredHeader < 0 && preferredHeader < 0) return fallback;
-  return preferredHeader > requiredHeader ? "preferred" : "required";
+  const target = normalize(evidence).toLowerCase();
+  let section = "";
+  for (const rawLine of String(context || "").split(/\r?\n/)) {
+    const line = normalize(rawLine);
+    if (/^(?:#{1,4}\s*)?(?:minimum|required|basic|essential) qualifications?\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?(?:requirements?|must haves?|what you(?:'ll| will)? need)\s*:?.*$/i.test(line)) section = "required";
+    else if (/^(?:#{1,4}\s*)?(?:preferred qualifications?|nice to have|preferred)\s*:?.*$/i.test(line)) section = "preferred";
+    else if (/^(?:#{1,4}\s*)?[a-z][a-z &'/-]{2,80}:\s*$/i.test(line)) section = "";
+    if (target && line.toLowerCase().includes(target)) return section || fallback;
+  }
+  return fallback;
 }
 function sentenceFor(value, pattern) { return String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/).map((item) => item.trim()).find((item) => { pattern.lastIndex = 0; return pattern.test(item); }) || ""; }
 function evidenceLine(value, pattern) { return String(value || "").split(/\r?\n|[,;]+/).map((item) => item.trim()).find((item) => pattern.test(item)) || ""; }
@@ -170,7 +171,6 @@ function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g
 function quote(value) { const clean = normalize(value); return clean ? `“${clean.slice(0, 220)}”` : ""; }
 function normalize(value) { return String(value || "").replace(/\s+/g, " ").trim(); }
 function locationTerms(value) { return normalize(value).toLowerCase().match(/[a-z]{3,}/g) || []; }
-function lastPatternIndex(value, pattern) { let index = -1; for (const match of String(value).matchAll(pattern)) index = match.index; return index; }
 function evidencePolarity(value) {
   const text = normalize(value);
   if (!text) return "unknown";
