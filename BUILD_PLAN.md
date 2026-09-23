@@ -27,10 +27,13 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Job-bound posting-to-form transitions for Greenhouse, Lever, Ashby, Workday, SmartRecruiters, and same-origin generic forms
 - [x] Full search-to-final-review regression across process restart, with no automatic submission or persisted field values
 - [x] ZipRecruiter labeled as a supplemental unfiltered sample; query-aligned sources identified separately
+- [x] Persistent Application Copilot side panel with step guidance and exact-job scope
+- [x] Explicit selected-resume attachment to unambiguous ATS resume fields
+- [x] Context-aware home journey, collapsed completed setup, and progressive ranked-result disclosure
 
 ## Current quality gate — 2026-09-22
 
-- [x] Complete regression suite: 223/223 passing
+- [x] Complete regression suite: 227/227 passing
 - [x] Dogfood preflight: runtime, resume, identity, extension pairing, and three configured public sources ready
 - [x] Live non-applying search smoke test: 158 discovered, 13 actionable, 23 hard-rejected, 57 weak/unsupported fits hidden
 - [x] Local app restarted and HTTP-smoked on the reviewed build

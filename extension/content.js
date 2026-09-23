@@ -14,6 +14,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try { sendResponse(inspectApplicationPage()); }
     catch (error) { sendResponse({ inspectionError: error.message }); }
   }
+  if (message?.type === "CLEARLEAD_ATTACH_RESUME") {
+    try { sendResponse(attachSelectedResume(message.pack, message.resume)); }
+    catch (error) { sendResponse({ attached: 0, attachmentError: error.message }); }
+  }
 });
 
 function inspectApplicationPage() {
@@ -116,6 +120,35 @@ function fillSafeFields(pack) {
     else report.review += 1;
   }
   return report;
+}
+
+function attachSelectedResume(pack, resume = {}) {
+  const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;
+  if (!allowedApplicationPage(pack, currentPage)) throw new Error("This page does not exactly match the verified application page. Open the prepared URL from ClearLead.");
+  const inspection = inspectApplicationPage();
+  if (inspection.phase !== "application") throw new Error("Open the employer's application form before attaching the selected resume.");
+  const filename = String(resume.filename || "").replace(/[^a-z0-9._ -]/gi, "").slice(0, 160);
+  if (!filename || !/\.pdf$/i.test(filename) || resume.mimeType !== "application/pdf" || !resume.base64) throw new Error("The selected resume is unavailable or is not a PDF.");
+  const fields = [...document.querySelectorAll("input[type='file']")].filter(visible);
+  const candidates = fields.filter((field) => {
+    const descriptor = describe(field);
+    const acceptsPdf = !field.accept || /pdf|application\/pdf|\.pdf/i.test(field.accept);
+    return acceptsPdf && /resume|résumé|curriculum|\bcv\b/i.test(descriptor) && !/cover|portfolio|transcript|certificate/i.test(descriptor);
+  });
+  const target = candidates.length === 1 ? candidates[0] : fields.length === 1 && (!fields[0].accept || /pdf|application\/pdf|\.pdf/i.test(fields[0].accept)) ? fields[0] : null;
+  if (!target) return { attached: 0, message: candidates.length > 1 ? "More than one resume field was found. Attach the reviewed file manually." : "No unambiguous PDF resume field was found on this step." };
+  if (target.files?.length) return { attached: 0, message: "A file is already attached. ClearLead preserved it." };
+  const binary = atob(resume.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const file = new File([bytes], filename, { type: "application/pdf", lastModified: Date.now() });
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  target.files = transfer.files;
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  decorate(target, "safe", "Selected ClearLead resume attached for your review");
+  return { attached: 1, filename, atsFamily: inspection.atsFamily, stepLabel: inspection.stepLabel };
 }
 
 function allowedApplicationPage(pack, currentPage) {

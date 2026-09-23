@@ -1,12 +1,12 @@
 # ClearLead first live application
 
-Use a real role you would genuinely apply to. ClearLead fills safe profile fields and tracks progress, but you remain responsible for legal answers, resume upload, review, and the final Submit click.
+Use a real role you would genuinely apply to. ClearLead fills safe profile fields, attaches the selected resume after your explicit approval, and tracks progress, but you remain responsible for legal answers, review, and the final Submit click.
 
 ## Start
 
 1. Run `npm run preflight`. Resolve every `BLOCK` before opening a job.
 2. Run `npm start` and open `http://127.0.0.1:4173`.
-3. Open `chrome://extensions`, find ClearLead Application Copilot, and click **Reload**. Confirm version **0.6.0**.
+3. Open `chrome://extensions`, find ClearLead Application Copilot, and click **Reload**. Confirm version **0.7.0**.
 4. If the extension rejects its token, create a new pairing token in ClearLead and paste it into the extension.
 
 ## Complete one application
@@ -16,18 +16,19 @@ Use a real role you would genuinely apply to. ClearLead fills safe profile field
 3. Choose **Make custom resume**. Review the content, then download the ATS-safe DOCX or polished PDF.
 4. Choose **Use for this application** or **Prepare application**, then open the verified employer URL.
 5. If a job board sends you to a different employer/ATS site, open the actual form and choose **Bind current application page** once. Confirm only when the extension names the same company and role. Skip this step when the prepared URL is already the form.
-6. In the extension, choose **Fill safe fields**. Upload the reviewed resume yourself.
-7. Resolve every amber, red, and blue field yourself. ClearLead never invents legal, demographic, salary, sponsorship, attestation, or free-text answers.
-8. On Workday or SmartRecruiters, use the employer's Next/Continue control and repeat **Fill safe fields** on each step.
-9. Choose **Check application status**. Continue only when it says the run is ready for final approval.
-10. Review the entire employer page once, click Submit yourself, then choose **Check application status** on the confirmation page.
+6. Click the ClearLead extension icon to keep its Application Copilot side panel open beside the employer form.
+7. Choose **Fill this step**. If a resume field is present, choose **Attach selected resume**, then confirm the correct filename appears on the employer page.
+8. Resolve every amber or red field yourself. ClearLead never invents legal, demographic, salary, sponsorship, attestation, or free-text answers.
+9. On Workday or SmartRecruiters, use the employer's Next/Continue control and repeat **Fill this step** on each page.
+10. Choose **Check step**. Continue only when it says the run is ready for final approval.
+11. Review the entire employer page once, click Submit yourself, then choose **Check step** on the confirmation page.
 
 ## Pass criteria
 
 - The recommended role is genuinely eligible and relevant.
 - The tailored resume contains no unsupported claim and downloads as both PDF and DOCX.
-- ClearLead fills name/contact/location/profile links without changing existing answers.
-- Sensitive, legal, free-text, radio, checkbox, and upload fields remain reviewable or manual.
+- ClearLead fills name/contact/location/profile links without changing existing answers and attaches only the selected resume after an explicit click.
+- Sensitive, legal, free-text, radio, and checkbox fields remain reviewable or manual.
 - The run survives a ClearLead restart and resumes after employer-page revalidation.
 - A board-to-employer handoff binds only after your confirmation and rejects unrelated or second-page binding attempts.
 - Completion is recorded only from confirmation-page evidence.

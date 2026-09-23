@@ -39,6 +39,15 @@ document.querySelector('#test-provider').addEventListener('click', testProvider)
 document.querySelector('#remove-provider').addEventListener('click', removeProvider);
 document.querySelector('#ai-provider').addEventListener('change', updateModelPlaceholder);
 document.querySelector('#pair-extension').addEventListener('click', pairExtension);
+document.querySelector('#resume-toggle').addEventListener('click', () => {
+  const section = document.querySelector('#resume');
+  const collapsed = section.classList.toggle('is-complete');
+  document.querySelector('#resume-toggle').textContent = collapsed ? 'Edit resume' : 'Hide resume';
+});
+document.querySelectorAll('a[href="#resume"]').forEach((link) => link.addEventListener('click', () => {
+  document.querySelector('#resume').classList.remove('is-complete');
+  document.querySelector('#resume-toggle').textContent = 'Hide resume';
+}));
 
 function updateModelPlaceholder() {
   const provider = document.querySelector('#ai-provider').value;
@@ -152,6 +161,11 @@ async function saveResume() {
 
 function showResume(summary = {}) {
   resumeReady = Boolean(summary.ready);
+  const resumeSection = document.querySelector('#resume');
+  const resumeToggle = document.querySelector('#resume-toggle');
+  resumeToggle.hidden = !resumeReady;
+  resumeSection.classList.toggle('is-complete', resumeReady);
+  resumeToggle.textContent = resumeReady ? 'Edit resume' : 'Hide resume';
   resumeStatus.className = `readiness ${resumeReady ? 'ready' : 'not-ready'}`;
   resumeStatus.textContent = summary.message || 'Resume required before search.';
   const searchButton = document.querySelector('#search-jobs');
@@ -165,6 +179,7 @@ function showResume(summary = {}) {
     <div class="insight-group"><span>explicit skills</span><div class="term-list">${(summary.skills || []).length ? summary.skills.map(termChip).join('') : '<i>none recognized yet</i>'}</div></div>
     <div class="insight-group"><span>role evidence</span><div class="term-list">${(summary.roleHints || []).length ? summary.roleHints.map(termChip).join('') : '<i>ranked from resume language</i>'}</div></div>
     <p class="quiet">${escape(summary.filename)} · saved ${relativeTime(summary.savedAt)}</p>`;
+  updateJourney(appState || {});
 }
 
 function showResumeError(message) {
@@ -249,6 +264,7 @@ async function searchJobs({silent = false} = {}) {
     renderSearch(data);
     showSearchConfig(data.config);
     appState = {...appState, searchConfig: data.config, searchStatus: {lastRunAt: data.searchedAt}};
+    updateJourney(appState);
     scheduleRefresh(data.config);
   } catch (error) {
     searchSummary.textContent = 'Search failed. Nothing was added or marked live.';
@@ -278,11 +294,15 @@ function renderSearch(data) {
   searchResults.innerHTML = data.outage
     ? '<div class="empty-state"><strong>All job sources are unavailable.</strong><p>Nothing was called published or live. Retry later or inspect source errors above.</p><button class="button ghost" id="retry-outage">Retry sources</button></div>'
     : data.jobs.length
-      ? data.jobs.map(jobCard).join('')
+      ? `${data.jobs.slice(0, 6).map(jobCard).join('')}${data.jobs.length > 6 ? `<div class="more-results"><button class="button ghost" id="show-more-jobs">Show ${data.jobs.length - 6} more matches</button></div>` : ''}`
       : '<div class="empty-state"><strong>No matching postings in the current pool.</strong><p>Try fewer title words, remove the location filter, or restore more source boards.</p></div>';
   const plan = document.querySelector('#search-plan');
   plan.innerHTML = data.plan ? `<strong>${escape(data.plan.mode === 'ai' ? 'AI-expanded search' : 'Built-in expanded search')} · ${escape(data.plan.explanation)}</strong>${(data.plan.titles || []).slice(0, 10).map((item) => `<span>${escape(item)}</span>`).join('')}${(data.plan.locations || []).slice(0, 8).map((item) => `<span>near ${escape(item)}</span>`).join('')}${data.plan.note ? `<span>${escape(data.plan.note)}</span>` : ''}` : '';
   document.querySelector('#retry-outage')?.addEventListener('click', () => searchJobs());
+  document.querySelector('#show-more-jobs')?.addEventListener('click', () => {
+    searchResults.innerHTML = data.jobs.map(jobCard).join('');
+    wireJobActions(searchResults);
+  });
   wireJobActions(searchResults);
 }
 
@@ -637,7 +657,9 @@ async function prepareAutofill(verificationId, button, resumeDraft = null) {
 function showAutofillPack(pack, {scroll = false, resumed = false} = {}) {
   const resumeHandoff = pack.resume ? `<div class="application-resume"><div><strong>Selected resume</strong><span>${escape(pack.resume.filename)}</span></div><a class="button ghost" href="${escape(pack.resume.pdfUrl)}">Download selected PDF</a></div>` : '<p class="quiet">No tailored resume is attached to this handoff. Choose and upload a resume on the employer page.</p>';
   autofillOutput.className = 'tailor-output active';
-  autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">${resumed ? 'application run resumed' : 'application handoff ready'}</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Run ${escape(pack.run.id.slice(0, 8))} is saved locally. Open that exact verified page, use <strong>Fill safe fields</strong>, review every answer, and use <strong>Check application status</strong> before making the final Submit click.</p>`;
+  autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">${resumed ? 'application run resumed' : 'application copilot ready'}</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Run ${escape(pack.run.id.slice(0, 8))} is saved locally. Open the verified application, then click the ClearLead extension icon. Its persistent side panel fills repeatable fields, attaches the selected resume when you approve it, and guides every step until your final review. ClearLead never clicks Submit.</p>`;
+  appState = {...(appState || {}), autofillPack: pack, applicationRuns: [pack.run, ...((appState?.applicationRuns || []).filter((run) => run.id !== pack.run.id))]};
+  updateJourney(appState);
   if (scroll) autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 
@@ -751,6 +773,7 @@ async function loadState({autoSearch = true} = {}) {
     showSearchConfig(data.searchConfig);
     renderQueue(data.leads);
     showRecoverableApplication(data);
+    updateJourney(data);
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
     const hasPreviousSearch = Boolean(data.searchStatus.lastRunAt);
     if (autoSearch && resumeReady && data.searchConfig.autoRefresh && hasPreviousSearch && document.querySelector('#smart-search').value.trim()) searchJobs({silent: true});
@@ -760,6 +783,42 @@ async function loadState({autoSearch = true} = {}) {
   } catch (error) {
     leads.innerHTML = `<div class="empty-state"><strong>${escape(error.message)}</strong><p><button class="button ghost" id="retry-queue">Retry loading ClearLead</button></p></div>`;
     document.querySelector('#retry-queue').addEventListener('click', () => loadState());
+  }
+}
+
+function updateJourney(state = {}) {
+  const hasSearch = Boolean(state.searchStatus?.lastRunAt);
+  const activeRun = state.autofillPack || (state.applicationRuns || []).find((run) => run.status !== 'complete');
+  const hasTailoredResume = Boolean(activeRun?.resume || activeRun?.run?.resume);
+  const steps = [
+    ['resume', resumeReady, !resumeReady, resumeReady ? 'Ready locally' : 'Add your evidence'],
+    ['search', hasSearch, resumeReady && !hasSearch, hasSearch ? 'Ranked matches ready' : 'Find strong matches'],
+    ['tailor', hasTailoredResume, hasSearch && !hasTailoredResume, hasTailoredResume ? 'Resume selected' : 'Build the right resume'],
+    ['apply', Boolean(activeRun), Boolean(activeRun), activeRun ? 'Continue in copilot' : 'Use the copilot'],
+  ];
+  for (const [name, done, active, label] of steps) {
+    const node = document.querySelector(`#journey-${name}`);
+    node.className = `${done && name !== 'apply' ? 'done' : ''} ${active ? 'active' : ''}`.trim();
+    node.querySelector('small').textContent = label;
+  }
+  const primary = document.querySelector('#hero-primary');
+  const copy = document.querySelector('#hero-copy');
+  if (activeRun) {
+    primary.href = '#autofill-output';
+    primary.textContent = 'Continue my application';
+    copy.textContent = 'Your application is prepared. Open the employer form and use the persistent ClearLead copilot to fill each step, attach the selected resume, and reach final review.';
+  } else if (hasSearch) {
+    primary.href = '#search-results';
+    primary.textContent = 'Review my best matches';
+    copy.textContent = 'Your ranked job pool is ready. Start with the strongest verified match, review its requirements, then build the tailored resume and application flow.';
+  } else if (resumeReady) {
+    primary.href = '#search';
+    primary.textContent = 'Find my best matches';
+    copy.textContent = 'Your resume is indexed locally. Describe the work you want once; ClearLead will reject bad fits, rank the strongest matches, and verify the best application paths.';
+  } else {
+    primary.href = '#resume';
+    primary.textContent = 'Add my resume';
+    copy.textContent = 'Start with your real experience. ClearLead keeps it local, rejects bad-fit roles, and uses only your evidence to tailor each application.';
   }
 }
 

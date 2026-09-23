@@ -37,15 +37,21 @@
     <section class="hero">
       <p class="terminal-line"><span>candidate@clearlead:~$</span> search --rank --tailor --apply</p>
       <h1>Tell us what you want.<br><em>Work the best matches.</em></h1>
-      <p class="hero-copy">ClearLead searches broad public and employer-direct sources, rejects bad-fit roles, ranks the rest against your actual resume, and guides each verified match through a tailored resume and safe application flow.</p>
-      <div class="hero-actions"><a class="button primary" href="#resume">Start with my resume</a><a class="button ghost" href="#verify-panel">I already have a job link</a></div>
+      <p id="hero-copy" class="hero-copy">ClearLead searches broad public and employer-direct sources, rejects bad-fit roles, ranks the rest against your actual resume, and guides each verified match through a tailored resume and safe application flow.</p>
+      <div class="journey" aria-label="ClearLead application journey">
+        <a id="journey-resume" href="#resume"><span>1</span><strong>Resume</strong><small>Add your evidence</small></a>
+        <a id="journey-search" href="#search"><span>2</span><strong>Search</strong><small>Find strong matches</small></a>
+        <a id="journey-tailor" href="#search"><span>3</span><strong>Tailor</strong><small>Build the right resume</small></a>
+        <a id="journey-apply" href="#queue"><span>4</span><strong>Apply</strong><small>Use the copilot</small></a>
+      </div>
+      <div class="hero-actions"><a id="hero-primary" class="button primary" href="#resume">Add my resume</a><a class="button ghost" href="#verify-panel">I already have a job link</a></div>
       <div id="runtime-readiness" class="runtime-readiness" aria-live="polite"></div>
     </section>
 
     <section id="resume" class="section-block resume-onboarding">
       <div class="section-heading">
         <div><p class="eyebrow">01 / local resume index</p><h2>Search from your actual experience</h2></div>
-        <p id="resume-status" class="readiness not-ready">Resume required before search.</p>
+        <div class="section-status"><p id="resume-status" class="readiness not-ready">Resume required before search.</p><button id="resume-toggle" class="button ghost compact" hidden>Edit resume</button></div>
       </div>
       <div class="resume-grid">
         <div class="panel resume-card">
@@ -156,7 +162,7 @@
         <div class="profile-foot"><p>Your targeting, identity, and answer preferences stay in ClearLead’s local data directory.</p><button id="save-profile" class="button ghost">Save targeting &amp; identity</button></div>
       </div>
       <div class="panel extension-setup" id="extension-setup">
-        <div><p class="eyebrow">application copilot</p><h3>Verify blocked pages and fill safe fields</h3><p>After you manually complete a CAPTCHA, keep the HTTPS employer job page active and use the paired extension to capture its rendered evidence. Do not run verification from the ClearLead tab. The extension can fill safe fields, but it cannot solve challenges or press Submit.</p></div>
+        <div><p class="eyebrow">application copilot</p><h3>A persistent guide beside every application</h3><p>Click the ClearLead extension icon to open its side panel. It stays beside the employer form, fills repeatable fields, attaches the selected resume when you approve it, and guides each ATS step. You handle personal or legal answers and the final Submit click.</p></div>
         <div class="extension-actions"><span id="extension-status" class="readiness not-ready">Extension not paired.</span><button id="pair-extension" class="button primary">Create pairing token</button></div>
         <div id="pairing-output" class="pairing-output" aria-live="polite"></div>
       </div>

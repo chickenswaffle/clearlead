@@ -10,10 +10,17 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, "extension", "manife
 const adapters = fs.readFileSync(path.join(root, "extension", "adapters.js"), "utf8");
 const content = fs.readFileSync(path.join(root, "extension", "content.js"), "utf8");
 const popup = fs.readFileSync(path.join(root, "extension", "popup.js"), "utf8");
+const popupHtml = fs.readFileSync(path.join(root, "extension", "popup.html"), "utf8");
+const background = fs.readFileSync(path.join(root, "extension", "background.js"), "utf8");
 
 test("extension is scoped to safe fill and contains no submission action", () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "storage"]);
+  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "sidePanel", "storage"]);
+  assert.equal(manifest.side_panel.default_path, "popup.html");
+  assert.equal(manifest.action.default_popup, undefined);
+  assert.match(background, /openPanelOnActionClick:\s*true/);
+  assert.match(popupHtml, /Fill this step/);
+  assert.match(popupHtml, /Attach selected resume/);
   assert.doesNotMatch(content, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
   assert.doesNotMatch(popup, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
   assert.match(content, /EEO|demographic/i);
@@ -259,4 +266,36 @@ test("runtime safe-fill changes only fields and never activates a submission pat
   assert.equal(field.value, "taylor@example.com");
   assert.deepEqual(calls.fieldEvents, ["input", "change"]);
   assert.deepEqual({ submit: calls.submit, requestSubmit: calls.requestSubmit, click: calls.click, fetch: calls.fetch, submitEvent: calls.submitEvent }, { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0 });
+});
+
+test("selected resume attachment requires an exact prepared page and an unambiguous PDF field", () => {
+  const events = [];
+  const fileField = {
+    id: "resume", name: "resume", type: "file", tagName: "INPUT", accept: ".pdf,application/pdf", autocomplete: "", disabled: false,
+    files: [], dataset: {}, style: {},
+    getBoundingClientRect() { return { width: 240, height: 36 }; },
+    getAttribute(name) { return name === "name" ? this.name : name === "placeholder" ? "Upload resume" : ""; },
+    closest() { return null; },
+    dispatchEvent(event) { events.push(event.type); return true; },
+  };
+  class TestFile { constructor(parts, name, options) { this.parts = parts; this.name = name; this.type = options.type; } }
+  class TestDataTransfer {
+    constructor() { this.files = []; this.items = { add: (file) => { this.files.push(file); } }; }
+  }
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+    ClearLeadAdapters: { inspectPage: () => ({ atsFamily: "greenhouse", phase: "application", stepLabel: "Application" }) },
+    location: { href: "https://apply.example.com/form?job=7", origin: "https://apply.example.com", pathname: "/form", search: "?job=7" },
+    URL, Uint8Array, File: TestFile, DataTransfer: TestDataTransfer, atob, Date,
+    document: { querySelectorAll(selector) { return selector === "input[type='file']" ? [fileField] : []; } },
+    CSS: { escape: (value) => value },
+    Event: class { constructor(type) { this.type = type; } },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__attach = attachSelectedResume;`, context);
+  const report = context.__attach({ allowedPages: ["https://apply.example.com/form?job=7"] }, { filename: "Acme-Support-resume.pdf", mimeType: "application/pdf", base64: "JVBERi0=" });
+  assert.equal(report.attached, 1);
+  assert.equal(fileField.files[0].name, "Acme-Support-resume.pdf");
+  assert.deepEqual(events, ["input", "change"]);
+  assert.throws(() => context.__attach({ allowedPages: ["https://apply.example.com/other?job=7"] }, { filename: "resume.pdf", mimeType: "application/pdf", base64: "JVBERi0=" }), /does not exactly match/);
 });

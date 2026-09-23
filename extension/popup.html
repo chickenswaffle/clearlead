@@ -1,27 +1,71 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"><title>ClearLead Copilot</title></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+  <title>ClearLead Application Copilot</title>
+</head>
 <body>
-  <header><span>&gt;</span> clearlead_<small>application copilot</small></header>
+  <header>
+    <div class="brand"><span>&gt;</span> clear<span>lead</span>_</div>
+    <small>APPLICATION COPILOT</small>
+    <span class="local-badge">LOCAL</span>
+  </header>
   <main>
-    <section id="pairing">
+    <section id="pairing" class="card pairing-card">
+      <p class="eyebrow">ONE-TIME SETUP</p>
+      <h1>Pair this browser</h1>
+      <p>Paste the token created in ClearLead. It stays in this browser profile and can be replaced at any time.</p>
       <label for="token">Pairing token</label>
       <input id="token" type="password" autocomplete="off" placeholder="Paste token from ClearLead">
-      <button id="save-token">Pair extension</button>
-      <p>Tokens stay in this extension profile and can be invalidated from ClearLead.</p>
+      <button id="save-token">Pair application copilot</button>
     </section>
+
     <section id="ready" hidden>
-      <div class="status"><i></i><span id="pair-status">paired locally</span></div>
-      <button id="capture">Verify current job page</button>
-      <button id="bind" class="secondary">Bind current application page</button>
-      <button id="fill">Fill safe fields</button>
-      <button id="inspect" class="secondary">Check application status</button>
-      <button id="forget" class="secondary">Forget pairing</button>
-      <p>For a blocked result, open the job, complete any CAPTCHA yourself, wait for the posting to render, then verify while that HTTPS employer page is the active tab—not the ClearLead tab. ClearLead never solves challenges or clicks Submit.</p>
-      <p>If a job board opens a different employer or ATS site, use <strong>Bind current application page</strong> once. ClearLead requires your confirmation plus referrer or job-identity evidence; it never grants access to arbitrary tabs.</p>
-      <p>Existing answers, legal questions, EEO fields, checkboxes, radio buttons, and file uploads remain untouched. Check status after reviewing them; ClearLead records readiness, but you make the final Submit click.</p>
+      <div class="statusbar"><span class="status"><i></i><span id="pair-status">paired locally</span></span><button id="refresh" class="icon-button" title="Refresh current step" aria-label="Refresh current step">↻</button></div>
+
+      <section id="run-card" class="card run-card" hidden>
+        <p class="eyebrow">ACTIVE APPLICATION</p>
+        <h1 id="job-title">Prepared job</h1>
+        <p id="job-company" class="job-company"></p>
+        <div class="progress" aria-label="Application progress">
+          <span id="progress-open" class="active">1</span><i></i><span id="progress-fill">2</span><i></i><span id="progress-review">3</span>
+        </div>
+        <div class="progress-labels"><span>Open</span><span>Fill</span><span>Review</span></div>
+      </section>
+
+      <section id="no-run" class="card empty-card">
+        <p class="eyebrow">NO APPLICATION PREPARED</p>
+        <h1>Start from ClearLead</h1>
+        <p>Verify a role and choose <strong>Prepare application</strong>. The job and selected resume will appear here.</p>
+      </section>
+
+      <section id="page-card" class="card page-card" hidden>
+        <div class="page-heading"><div><p class="eyebrow">CURRENT PAGE</p><h2 id="step-label">Application</h2></div><span id="ats-family" class="ats-badge">ATS</span></div>
+        <p id="page-guidance">Open the prepared employer application to begin.</p>
+        <div id="field-summary" class="field-summary" hidden></div>
+      </section>
+
+      <div id="primary-actions" class="actions" hidden>
+        <button id="open-application">Open prepared application</button>
+        <button id="bind" class="secondary" hidden>Bind this employer form</button>
+        <button id="fill">Fill this step</button>
+        <button id="attach" class="secondary" hidden>Attach selected resume</button>
+        <button id="inspect" class="secondary">Check step</button>
+      </div>
+
+      <details class="verification-tools">
+        <summary>Verification and recovery</summary>
+        <button id="capture" class="secondary">Verify current job page</button>
+        <p>Use this only after a blocked posting renders in the browser. Complete any CAPTCHA yourself first.</p>
+      </details>
+
+      <div class="safety-note"><strong>ClearLead fills repeatable facts.</strong><span>Personal, legal, demographic, salary, sponsorship, attestation, and final Submit decisions remain yours.</span></div>
+      <button id="forget" class="text-button">Forget browser pairing</button>
     </section>
-    <div id="result" role="status"></div>
+
+    <div id="result" role="status" aria-live="polite"></div>
   </main>
   <script src="popup.js"></script>
 </body>

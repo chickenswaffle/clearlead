@@ -26,6 +26,14 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(html, /application\/pdf/);
   assert.match(script, /\/api\/resume\/pdf/);
   assert.match(html, /id="smart-search"/);
+  assert.match(html, /id="hero-primary"/);
+  assert.match(html, /id="journey-resume"/);
+  assert.match(html, /id="journey-apply"/);
+  assert.match(script, /function updateJourney/);
+  assert.match(script, /Continue my application/);
+  assert.match(script, /slice\(0, 6\)/);
+  assert.match(script, /show-more-jobs/);
+  assert.match(html, /id="resume-toggle"/);
   assert.match(html, /id="use-ai-search"/);
   const aiSearchInput = html.match(/<input[^>]*id="use-ai-search"[^>]*>/)?.[0] || "";
   assert.doesNotMatch(aiSearchInput, /\schecked(?:\s|>|=)/, "AI search must require an explicit user opt-in");
