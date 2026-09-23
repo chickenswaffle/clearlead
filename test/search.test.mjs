@@ -175,3 +175,23 @@ test("search keeps clause polarity and does not hide company tenure or optional 
   assert.equal(result.allJobs.find((job) => job.company === "History Corp")?.match.eligibility.warnings.length, 0);
   assert.equal(result.funnel.fitSkipped, 1);
 });
+
+test("search handles contrast clauses, qualification headings, and natural optionality", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "Although Corp", location: "Dallas", url: "https://jobs.lever.co/although/1", postedAt: "2026-09-21T00:00:00Z", description: "Although a bachelor's degree is not required, 3+ years in IT support is required." },
+    { title: "IT Support Specialist", company: "While Corp", location: "Dallas", url: "https://jobs.lever.co/while/2", postedAt: "2026-09-21T00:00:00Z", description: "A+ is optional, while Network+ is required." },
+    { title: "IT Support Specialist", company: "Candidate Corp", location: "Dallas", url: "https://jobs.lever.co/candidate/3", postedAt: "2026-09-21T00:00:00Z", description: "The company requires candidates to have 5 years in IT support." },
+    { title: "IT Support Specialist", company: "Heading Corp", location: "Dallas", url: "https://jobs.lever.co/heading/4", postedAt: "2026-09-21T00:00:00Z", description: "Qualifications:\n3+ years in IT support" },
+    { title: "IT Support Specialist", company: "Acme History", location: "Dallas", url: "https://jobs.lever.co/history/5", postedAt: "2026-09-21T00:00:00Z", description: "Acme has 25 years of IT support experience." },
+    { title: "IT Support Specialist", company: "No Need Corp", location: "Dallas", url: "https://jobs.lever.co/no-need/6", postedAt: "2026-09-21T00:00:00Z", description: "Support Windows users. You do not need A+ certification." },
+    { title: "IT Support Specialist", company: "Not Needed Corp", location: "Dallas", url: "https://jobs.lever.co/not-needed/7", postedAt: "2026-09-21T00:00:00Z", description: "Support Windows users. A+ certification is not needed." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Associate\n2025 - Present\nSupported Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(new Set(result.jobs.map((job) => job.company)), new Set(["Acme History", "No Need Corp", "Not Needed Corp"]));
+  assert.equal(result.funnel.fitSkipped, 4);
+  assert.ok(result.allJobs.filter((job) => job.match.decision.code === "skip").every((job) => job.match.qualifications.counts.missing > 0));
+});

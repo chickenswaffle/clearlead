@@ -124,3 +124,31 @@ test("company history and optional credentials do not become candidate gates", (
     assert.equal(result.counts.missing, 0, description);
   }
 });
+
+test("contrast connectors preserve the requirement they actually qualify", () => {
+  const mixedEducation = analyzeQualifications({ description: "Although a bachelor's degree is not required, 3+ years in IT support is required." }, { text: "Support associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+  assert.equal(mixedEducation.items.some((item) => item.code === "education"), false);
+  assert.equal(mixedEducation.items.find((item) => item.code === "experience-years")?.status, "missing");
+
+  const mixedCertifications = analyzeQualifications({ description: "A+ is optional, while Network+ is required." }, { text: "IT support" });
+  assert.equal(mixedCertifications.items.some((item) => item.code === "cert-a"), false);
+  assert.equal(mixedCertifications.items.find((item) => item.code === "cert-network")?.status, "missing");
+});
+
+test("candidate tenure, generic qualification headings, and named-company history stay distinct", () => {
+  for (const description of ["The company requires candidates to have 5 years in IT support.", "Qualifications:\n3+ years in IT support"]) {
+    const result = analyzeQualifications({ description }, { text: "Support associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    assert.equal(result.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+  }
+  const history = analyzeQualifications({ description: "Acme has 25 years of IT support experience." }, { text: "IT support" });
+  assert.equal(history.items.some((item) => item.code === "experience-years"), false);
+  assert.equal(history.counts.missing, 0);
+});
+
+test("natural not-needed credential language does not become a hard gate", () => {
+  for (const description of ["You do not need A+ certification.", "A+ certification is not needed.", "A+ certification is not necessary."]) {
+    const result = analyzeQualifications({ description }, { text: "IT support" });
+    assert.equal(result.items.some((item) => item.code === "cert-a"), false, description);
+    assert.equal(result.counts.missing, 0, description);
+  }
+});

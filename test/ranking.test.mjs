@@ -159,3 +159,25 @@ test("company tenure and optional credentials do not force a skip decision", () 
     assert.notEqual(match.decision.code, "skip", description);
   }
 });
+
+test("generic qualification headings and explicit candidate tenure force a skip", () => {
+  for (const description of ["Qualifications:\n3+ years in IT support", "The company requires candidates to have 5 years in IT support."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/6", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT Support Associate\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 1, description);
+    assert.equal(match.decision.code, "skip", description);
+  }
+});
+
+test("named-company history and not-needed credentials remain actionable", () => {
+  for (const description of ["Acme has 25 years of IT support experience.", "You do not need A+ certification.", "A+ certification is not needed."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/7", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT support for Windows users", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 0, description);
+    assert.notEqual(match.decision.code, "skip", description);
+  }
+});

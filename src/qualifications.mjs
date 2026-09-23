@@ -3,8 +3,8 @@ import { analyzeResume } from "./resume.mjs";
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const YEAR_VALUE = "(?<years>\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
 const EXPERIENCE_PATTERNS = [
-  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"), contextual: false },
-  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|$)){1,8}`, "gi"), contextual: true },
+  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"), contextual: true },
+  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|(?=[,;!?]|\\.$|$))){1,8}`, "gi"), contextual: true },
   { pattern: new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"), contextual: false },
 ];
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
@@ -193,7 +193,7 @@ function sectionImportanceOf(evidence, context = "") {
   let section = "";
   for (const rawLine of String(context || "").split(/\r?\n/)) {
     const line = normalize(rawLine);
-    if (/^(?:#{1,4}\s*)?(?:minimum|required|basic|essential) qualifications?\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?(?:requirements?|must haves?|what you(?:'ll| will)? need)\s*:?.*$/i.test(line)) section = "required";
+    if (/^(?:#{1,4}\s*)?(?:(?:minimum|required|basic|essential) qualifications?|qualifications?)\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?(?:requirements?|must haves?|what you(?:'ll| will)? need)\s*:?.*$/i.test(line)) section = "required";
     else if (/^(?:#{1,4}\s*)?(?:preferred qualifications?|nice to have|preferred)\s*:?.*$/i.test(line)) section = "preferred";
     else if (/^(?:#{1,4}\s*)?(?:responsibilities|duties|benefits|about(?: us| the role)?|job description|what you(?:'ll| will)? do|skills|experience|education|schedule|location|compensation)\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?[a-z][a-z &'/-]{2,80}:\s*$/i.test(line)) section = "";
     if (target && line.toLowerCase().includes(target)) return section;
@@ -201,7 +201,7 @@ function sectionImportanceOf(evidence, context = "") {
   return "";
 }
 function segments(value) { return String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/).map((item) => item.trim()).filter(Boolean); }
-function clauses(value) { return segments(value).flatMap((item) => item.split(/\s*(?:,\s*)?\bbut\b\s*/i).map((clause) => clause.trim()).filter(Boolean)); }
+function clauses(value) { return segments(value).flatMap(splitRequirementClauses); }
 function sentenceFor(value, pattern) { return clauses(value).find((item) => { pattern.lastIndex = 0; return pattern.test(item); }) || ""; }
 function shouldIgnoreRequirement(evidence) {
   const text = normalize(evidence);
@@ -211,17 +211,30 @@ function shouldIgnoreRequirement(evidence) {
     || /\b(?:do|does)\s+not\s+require\b/i.test(text)
     || /\bwithout\s+requiring\b/i.test(text)
     || /\bnot\s+mandatory\b/i.test(text)
+    || /\bnot\s+(?:needed|necessary)\b/i.test(text)
     || /\boptional\b/i.test(text)
-    || /\bno\s+need\s+(?:for|to\s+have)\b/i.test(text);
+    || /\bno\s+need\s+(?:for|to\s+have)\b/i.test(text)
+    || /\b(?:do|does)\s+not\s+need\b/i.test(text)
+    || /\bneed\s+not\s+(?:have|hold|possess)\b/i.test(text);
   const explicitlyPreferred = /\bnot\s+(?:strictly\s+)?required\b[^.!?;]{0,50}\b(?:but\s+)?preferred\b/i.test(text);
   return negated && !explicitlyPreferred;
 }
 function experienceRequirementContext(evidence, section) {
-  return Boolean(section) || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidate|applicant|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence);
+  return Boolean(section)
+    || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
+    || new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(normalize(evidence))
+    || /^experience\s*:/i.test(normalize(evidence));
 }
 function organizationHistoryStatement(evidence) {
-  return /\b(?:our|the)\s+(?:company|organization|business|team|leadership|founder)\b/i.test(evidence)
-    || /\b(?:company|organization|business|team|leadership)\s+(?:brings?|has|have|offers?|provides?)\b/i.test(evidence);
+  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|have|bring)\b/i.test(evidence)) return false;
+  return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
+}
+function splitRequirementClauses(value) {
+  return String(value || "")
+    .replace(/^\s*(?:although|though)\s+/i, "")
+    .split(/\s*,\s*(?=(?:(?:but|however|while|whereas|yet)\b)|[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
+    .map((clause) => clause.replace(/^\s*(?:but|however|while|whereas|yet)\s*,?\s*/i, "").trim())
+    .filter(Boolean);
 }
 function evidenceLine(value, pattern) { return String(value || "").split(/\r?\n|[,;]+/).map((item) => item.trim()).find((item) => pattern.test(item)) || ""; }
 function containsToken(value, token) { return new RegExp(`(?:^|[^a-z0-9])${escapeRegex(token)}(?:$|[^a-z0-9+])`, "i").test(String(value)); }
