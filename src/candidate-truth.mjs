@@ -76,7 +76,7 @@ function applicationAnswers(profile) {
     ["eligibility.restrictiveAgreement", profile.restrictiveAgreement], ["eligibility.otherLanguageFluency", profile.otherLanguageFluency],
     ["employment.priorSrsEmployment", profile.priorSrsEmployment], ["employment.currentSrsAssociate", profile.currentSrsAssociate],
     ["employment.currentHomeDepotAssociate", profile.currentHomeDepotAssociate], ["employment.relatedIndustryExperience", profile.relatedIndustryExperience],
-    ["preference.relocation", profile.relocation], ["preference.desiredSalary", profile.desiredSalary],
+    ["preference.relocation", profile.relocation], ["preference.workArrangement", profile.workArrangement], ["preference.desiredSalary", profile.desiredSalary],
   ];
   return fields.map(([key, value]) => ({
     key,

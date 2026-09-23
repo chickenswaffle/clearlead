@@ -6,7 +6,7 @@ Use a real role you would genuinely apply to. ClearLead fills safe profile field
 
 1. Run `npm run preflight`. Resolve every `BLOCK` before opening a job.
 2. Run `npm start` and open `http://127.0.0.1:4173`.
-3. Open `chrome://extensions`, find ClearLead Application Copilot, and click **Reload**. Confirm version **0.8.0**.
+3. Open `chrome://extensions`, find ClearLead Application Copilot, and click **Reload**. Confirm version **0.8.1**.
 4. If the extension rejects its token, create a new pairing token in ClearLead and paste it into the extension.
 
 ## Complete one application

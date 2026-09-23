@@ -220,12 +220,13 @@ function readApplicationProfile() {
     age18OrOlder: value('#age-18'), backgroundCheckConsent: value('#background-consent'), restrictiveAgreement: value('#restrictive-agreement'),
     otherLanguageFluency: value('#other-language'), priorSrsEmployment: value('#prior-srs'), currentSrsAssociate: value('#current-srs'),
     currentHomeDepotAssociate: value('#current-home-depot'), relatedIndustryExperience: value('#related-industry'), relocation: value('#relocation'),
+    workArrangement: value('#work-arrangement'),
   };
 }
 
 function showApplicationProfile(profile = {}, state = {}) {
-  const fields = {'#full-name':'fullName','#application-email':'email','#application-phone':'phone','#application-location':'location','#application-city':'city','#application-state':'state','#application-postal':'postalCode','#application-country':'country','#linkedin-url':'linkedinUrl','#github-url':'githubUrl','#portfolio-url':'portfolioUrl','#desired-salary':'desiredSalary','#work-authorization':'workAuthorization','#needs-sponsorship':'needsSponsorship','#age-18':'age18OrOlder','#background-consent':'backgroundCheckConsent','#restrictive-agreement':'restrictiveAgreement','#other-language':'otherLanguageFluency','#prior-srs':'priorSrsEmployment','#current-srs':'currentSrsAssociate','#current-home-depot':'currentHomeDepotAssociate','#related-industry':'relatedIndustryExperience','#relocation':'relocation'};
-  const choiceFields = new Set(['#work-authorization', '#needs-sponsorship', '#age-18', '#background-consent', '#restrictive-agreement', '#other-language', '#prior-srs', '#current-srs', '#current-home-depot', '#related-industry', '#relocation']);
+  const fields = {'#full-name':'fullName','#application-email':'email','#application-phone':'phone','#application-location':'location','#application-city':'city','#application-state':'state','#application-postal':'postalCode','#application-country':'country','#linkedin-url':'linkedinUrl','#github-url':'githubUrl','#portfolio-url':'portfolioUrl','#desired-salary':'desiredSalary','#work-authorization':'workAuthorization','#needs-sponsorship':'needsSponsorship','#age-18':'age18OrOlder','#background-consent':'backgroundCheckConsent','#restrictive-agreement':'restrictiveAgreement','#other-language':'otherLanguageFluency','#prior-srs':'priorSrsEmployment','#current-srs':'currentSrsAssociate','#current-home-depot':'currentHomeDepotAssociate','#related-industry':'relatedIndustryExperience','#relocation':'relocation','#work-arrangement':'workArrangement'};
+  const choiceFields = new Set(['#work-authorization', '#needs-sponsorship', '#age-18', '#background-consent', '#restrictive-agreement', '#other-language', '#prior-srs', '#current-srs', '#current-home-depot', '#related-industry', '#relocation', '#work-arrangement']);
   for (const [selector, key] of Object.entries(fields)) document.querySelector(selector).value = profile[key] || (choiceFields.has(selector) ? 'unknown' : '');
   if (state.message && !state.ready) readiness.textContent = `${readiness.textContent} ${state.message}`.trim();
 }

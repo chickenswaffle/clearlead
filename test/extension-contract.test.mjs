@@ -230,13 +230,15 @@ test("field policy fails closed on third-party contacts and preserves meaningful
   assert.equal(context.__policy.hasValue({ tagName: "SELECT", selectedIndex: 0, value: "yes" }), true);
 });
 
-test("saved answer memory matches only recognized yes/no questions", () => {
+test("saved answer memory matches only recognized confirmed questions", () => {
   const context = { chrome: { runtime: { onMessage: { addListener() {} } } } };
   vm.runInNewContext(`${content}\n;globalThis.__savedAnswer = savedAnswerForQuestion;`, context);
   const answers = { age18OrOlder: "yes", workAuthorization: "yes", needsSponsorship: "no", restrictiveAgreement: "no", backgroundCheckConsent: "yes" };
   assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Are you at least 18 years of age or older?", answers))), { key: "age18OrOlder", value: "yes" });
   assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Do you currently require the Company to support or sponsor you for any U.S. immigration benefit?", answers))), { key: "needsSponsorship", value: "no" });
   assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Do you have any written agreement with your previous employer that restricts your right to compete?", answers))), { key: "restrictiveAgreement", value: "no" });
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Are you willing to relocate for this position?", { relocation: "no" }))), { key: "relocation", value: "no" });
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("For this position, work arrangements may include fully on-site or a hybrid schedule. Please indicate your preferred availability:", { workArrangement: "either" }))), { key: "workArrangement", value: "either", option: "Either (fully on-site or hybrid)" });
   assert.equal(context.__savedAnswer("Have you ever been convicted of a crime?", answers), null);
   assert.equal(context.__savedAnswer("What salary do you expect?", answers), null);
 });

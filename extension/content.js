@@ -139,6 +139,13 @@ const SAVED_ANSWER_RULES = [
   ["restrictiveAgreement", /written agreement with your previous employer.*restricts your right to compete/],
   ["otherLanguageFluency", /fluent in a language other than english/],
   ["priorSrsEmployment", /previously worked at srs distribution/],
+  ["relocation", /willing to relocate/],
+  ["workArrangement", /work arrangements may include fully on site or a hybrid schedule.*preferred availability/, {
+    onsite: "Fully on-site, five days a week",
+    hybrid: "Hybrid (a combination of remote and on-site work)",
+    either: "Either (fully on-site or hybrid)",
+    remote: "Remote Only – (reside outside of job position area)",
+  }],
 ];
 
 function savedAnswerForQuestion(question, answers = {}) {
@@ -146,18 +153,21 @@ function savedAnswerForQuestion(question, answers = {}) {
   const rule = SAVED_ANSWER_RULES.find(([, pattern]) => pattern.test(normalized));
   if (!rule) return null;
   const value = answers[rule[0]];
-  return value === "yes" || value === "no" ? { key: rule[0], value } : null;
+  if (!["yes", "no", "onsite", "hybrid", "either", "remote"].includes(value)) return null;
+  const option = rule[2]?.[value];
+  return option ? { key: rule[0], value, option } : { key: rule[0], value };
 }
 
 async function fillSavedAnswerControls(answers) {
   const report = { filled: 0, review: 0 };
   if (!answers || typeof answers !== "object") return report;
-  if (!Object.values(answers).some((value) => value === "yes" || value === "no")) return report;
+  if (!Object.values(answers).some((value) => ["yes", "no", "onsite", "hybrid", "either", "remote"].includes(value))) return report;
   const groups = [...document.querySelectorAll('[role="group"], fieldset')];
   for (const group of groups) {
     const matched = savedAnswerForQuestion(group.textContent, answers);
     if (!matched) continue;
-    const existing = selectedYesNo(group);
+    const target = matched.option || matched.value;
+    const existing = selectedAnswer(group, target);
     if (existing) {
       const existingControl = answerControl(group) || group.querySelector("select") || group.querySelector('input[type="radio"]:checked');
       if (existingControl) decorate(existingControl, "review", `Saved answer preserved: ${existing}`);
@@ -165,7 +175,7 @@ async function fillSavedAnswerControls(answers) {
     }
     const nativeSelect = group.querySelector("select");
     if (nativeSelect) {
-      if (assign(nativeSelect, matched.value)) {
+      if (assign(nativeSelect, target)) {
         decorate(nativeSelect, "safe", `Confirmed answer reused: ${matched.value}`);
         report.filled += 1;
       } else report.review += 1;
@@ -185,7 +195,7 @@ async function fillSavedAnswerControls(answers) {
     await shortWait();
     const option = [...document.querySelectorAll('[role="option"]')]
       .filter(visible)
-      .find((item) => String(item.textContent || "").trim().toLowerCase() === matched.value);
+      .find((item) => String(item.textContent || "").trim().toLowerCase() === target.toLowerCase());
     if (!option) { decorate(button, "review", "Saved answer found, but this control needs manual selection"); report.review += 1; continue; }
     dispatchMouseClick(option);
     await shortWait();
@@ -198,14 +208,18 @@ async function fillSavedAnswerControls(answers) {
 function answerControl(group) {
   return [...group.querySelectorAll("button")].find((button) => !/\b(?:back|next|continue|submit|apply)\b/i.test(String(button.textContent || ""))) || null;
 }
-function selectedYesNo(group) {
+function selectedAnswer(group, target) {
   const select = group.querySelector("select");
-  if (select && /^(?:yes|no)$/i.test(String(select.value || ""))) return String(select.value).toLowerCase();
+  if (select) {
+    const selected = select.options?.[select.selectedIndex];
+    const value = String(selected?.textContent || select.value || "").trim();
+    if (value.toLowerCase() === String(target).toLowerCase()) return value;
+  }
   const checked = group.querySelector('input[type="radio"]:checked');
   if (checked) return yesNoText(checked, group);
   const button = answerControl(group);
-  const text = String(button?.textContent || "").trim().toLowerCase();
-  return /^(?:yes|no)$/.test(text) ? text : "";
+  const text = String(button?.textContent || "").trim();
+  return text.toLowerCase() === String(target).toLowerCase() ? text : "";
 }
 function yesNoText(field, group) {
   const own = [field.value, field.getAttribute?.("aria-label")].filter(Boolean).join(" ").toLowerCase();

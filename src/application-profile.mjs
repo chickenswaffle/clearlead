@@ -1,4 +1,5 @@
 const YES_NO_UNKNOWN = new Set(["yes", "no", "unknown"]);
+const WORK_ARRANGEMENTS = new Set(["onsite", "hybrid", "either", "remote", "unknown"]);
 
 export function normalizeApplicationProfile(input = {}) {
   const fullName = clean(input.fullName, 140);
@@ -28,6 +29,7 @@ export function normalizeApplicationProfile(input = {}) {
     currentHomeDepotAssociate: choice(input.currentHomeDepotAssociate),
     relatedIndustryExperience: choice(input.relatedIndustryExperience),
     relocation: choice(input.relocation),
+    workArrangement: enumeratedChoice(input.workArrangement, WORK_ARRANGEMENTS),
     desiredSalary: clean(input.desiredSalary, 120),
     savedAt: validIso(input.savedAt) || new Date().toISOString(),
   };
@@ -45,6 +47,7 @@ export function applicationProfileReadiness(profile = {}) {
 
 function clean(value, limit) { return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, limit); }
 function choice(value) { const normalized = clean(value, 20).toLowerCase(); return YES_NO_UNKNOWN.has(normalized) ? normalized : "unknown"; }
+function enumeratedChoice(value, allowed) { const normalized = clean(value, 40).toLowerCase(); return allowed.has(normalized) ? normalized : "unknown"; }
 function httpUrl(value) { try { const parsed = new URL(clean(value, 500)); return /^https?:$/.test(parsed.protocol) ? parsed.toString() : ""; } catch { return ""; } }
 function isEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "")); }
 function validIso(value) { const parsed = Date.parse(value || ""); return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null; }

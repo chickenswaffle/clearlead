@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { normalizeApplicationProfile, applicationProfileReadiness } from "../src/application-profile.mjs";
 
 test("application identity is normalized without inventing legal answers", () => {
-  const profile = normalizeApplicationProfile({ fullName: "  Taylor   Example ", email: "taylor@example.com", linkedinUrl: "https://linkedin.com/in/taylor", workAuthorization: "maybe", needsSponsorship: "yes", age18OrOlder: "yes", restrictiveAgreement: "no", backgroundCheckConsent: "sometimes" });
+  const profile = normalizeApplicationProfile({ fullName: "  Taylor   Example ", email: "taylor@example.com", linkedinUrl: "https://linkedin.com/in/taylor", workAuthorization: "maybe", needsSponsorship: "yes", age18OrOlder: "yes", restrictiveAgreement: "no", backgroundCheckConsent: "sometimes", workArrangement: "either" });
   assert.equal(profile.firstName, "Taylor");
   assert.equal(profile.lastName, "Example");
   assert.equal(profile.workAuthorization, "unknown");
@@ -11,6 +11,7 @@ test("application identity is normalized without inventing legal answers", () =>
   assert.equal(profile.age18OrOlder, "yes");
   assert.equal(profile.restrictiveAgreement, "no");
   assert.equal(profile.backgroundCheckConsent, "unknown");
+  assert.equal(profile.workArrangement, "either");
   assert.equal(applicationProfileReadiness(profile).ready, true);
 });
 
