@@ -263,3 +263,12 @@ test("canonical year-first domain requirements cannot rank apply", () => {
     assert.equal(match.decision.code, "skip", description);
   }
 });
+
+test("or-more experience requirements cannot rank apply", () => {
+  const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/17", postedAt: "2026-09-21T00:00:00Z", description: "Candidates must have five or more years of IT support experience." }, {
+    resume: { text: "IT Support Analyst\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.items.find((item) => item.code === "experience-years")?.status, "missing");
+  assert.equal(match.decision.code, "skip");
+});

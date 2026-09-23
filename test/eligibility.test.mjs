@@ -60,6 +60,13 @@ test("spelled-out experience requirements are not missed", () => {
   assert.ok(result.warnings.some((warning) => warning.code === "heavy-experience-requirement"));
 });
 
+test("or-more experience requirements trigger entry-level review without flagging company history", () => {
+  const requirement = evaluateJobEligibility({ title: "L1 Support", description: "Candidates must have five or more years of IT support experience.", postedAt: "2026-09-20T00:00:00Z" }, { plan: { seniority: "entry" }, now: NOW });
+  assert.ok(requirement.warnings.some((warning) => warning.code === "heavy-experience-requirement"));
+  const history = evaluateJobEligibility({ title: "L1 Support", company: "Acme", description: "Acme has 20 or more years of IT support experience.", postedAt: "2026-09-20T00:00:00Z" }, { plan: { seniority: "entry" }, now: NOW });
+  assert.equal(history.warnings.some((warning) => warning.code === "heavy-experience-requirement"), false);
+});
+
 test("active clearance requirements fail closed without matching evidence", () => {
   const result = evaluateJobEligibility({
     title: "Help Desk Technician",

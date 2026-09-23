@@ -26,10 +26,11 @@ const ACTIVE_CLEARANCE_REQUIRED = /\b(?:(?:active|current)\s+(?:(?:top\s+secret|
 const CLEARANCE_EVIDENCE = /\b(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance\b|\b(?:top\s+secret|ts\s*\/\s*sci)\b/i;
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const YEAR_VALUE = "(?<years>\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+const YEAR_QUANTITY = `${YEAR_VALUE}(?:\\s*\\+|\\s+or\\s+more)?`;
 const EXPERIENCE_REQUIREMENTS = [
-  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"), contextual: true },
-  { pattern: new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|(?=[,;!?]|\\.$|$))){1,8}`, "gi"), contextual: true },
-  { pattern: new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"), contextual: false },
+  { pattern: new RegExp(`\\b${YEAR_QUANTITY}\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"), contextual: true },
+  { pattern: new RegExp(`\\b${YEAR_QUANTITY}\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|(?=[,;!?]|\\.$|$))){1,8}`, "gi"), contextual: true },
+  { pattern: new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_QUANTITY}\\s*(?:years?|yrs?)\\b`, "gi"), contextual: false },
 ];
 
 export function evaluateJobEligibility(job = {}, {
@@ -180,13 +181,13 @@ function experienceRequirementContext(evidence, section, years, matchedText) {
     || /\byou\s+should\s+have\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+who\s+(?:has|have)\b/i.test(evidence)
-    || (years <= 15 && new RegExp(`^(?:at\\s+least\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
+    || (years <= 15 && new RegExp(`^(?:at\\s+least\\s+)?${YEAR_QUANTITY}\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
     || yearFirstCandidateTenure(text, years, matchedText)
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
   if (/\b(?:candidates?|applicants?|someone|individuals?|persons?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
-  return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
+  return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s*\+|\s+or\s+more)?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
   const contrastClauses = String(value || "")
@@ -199,7 +200,7 @@ function splitRequirementClauses(value) {
 }
 function sameRequirementText(evidence, matchedText) { return clean(evidence).replace(/[.!?]+$/, "") === clean(matchedText).replace(/[.!?]+$/, ""); }
 function yearFirstCandidateTenure(evidence, years, matchedText) {
-  if (years > 15 || !new RegExp(`^(?:at\\s+least\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(evidence)) return false;
+  if (years > 15 || !new RegExp(`^(?:at\\s+least\\s+)?${YEAR_QUANTITY}\\s*(?:years?|yrs?)`, "i").test(evidence)) return false;
   const cleanEvidence = clean(evidence).replace(/[.!?]+$/, "");
   const cleanMatch = clean(matchedText).replace(/[.!?]+$/, "");
   if (sameRequirementText(cleanEvidence.replace(/^at\s+least\s+/i, ""), cleanMatch)) return true;

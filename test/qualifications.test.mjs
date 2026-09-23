@@ -241,3 +241,17 @@ test("canonical year-first domain requirements survive flattened posting prose",
   const marketing = analyzeQualifications({ description: "10 years of IT support experience powers Acme customer service." }, { text: "IT support" });
   assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
 });
+
+test("or-more tenure phrases remain hard requirements without capturing company history", () => {
+  for (const description of [
+    "Candidates must have five or more years of IT support experience.",
+    "Minimum qualifications: 5 or more years in desktop support.",
+    "Experience: five or more years supporting Windows users.",
+  ]) {
+    const result = analyzeQualifications({ description }, { text: "Windows desktop IT support analyst\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    assert.equal(result.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+    assert.ok(result.counts.missing >= 1, description);
+  }
+  const marketing = analyzeQualifications({ description: "Acme has 20 or more years of IT support experience." }, { text: "IT support" });
+  assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
+});
