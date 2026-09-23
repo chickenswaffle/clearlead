@@ -79,3 +79,9 @@ test("required heading context stops at the next unrelated section", () => {
   assert.equal(result.items.find((item) => item.code === "skill-active-directory").importance, "required");
   assert.equal(result.items.find((item) => item.code === "skill-kubernetes").importance, "preferred");
 });
+
+test("required heading context also stops at colonless responsibility headings", () => {
+  const result = analyzeQualifications({ description: "Minimum Qualifications\nWindows\nResponsibilities\nActive Directory" }, { text: "Windows" });
+  assert.equal(result.items.find((item) => item.code === "skill-windows").importance, "required");
+  assert.equal(result.items.find((item) => item.code === "skill-active-directory").importance, "preferred");
+});

@@ -159,7 +159,7 @@ function importanceOf(evidence, fallback, context = "") {
     const line = normalize(rawLine);
     if (/^(?:#{1,4}\s*)?(?:minimum|required|basic|essential) qualifications?\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?(?:requirements?|must haves?|what you(?:'ll| will)? need)\s*:?.*$/i.test(line)) section = "required";
     else if (/^(?:#{1,4}\s*)?(?:preferred qualifications?|nice to have|preferred)\s*:?.*$/i.test(line)) section = "preferred";
-    else if (/^(?:#{1,4}\s*)?[a-z][a-z &'/-]{2,80}:\s*$/i.test(line)) section = "";
+    else if (/^(?:#{1,4}\s*)?(?:responsibilities|duties|benefits|about(?: us| the role)?|job description|what you(?:'ll| will)? do|skills|experience|education|schedule|location|compensation)\s*:?.*$/i.test(line) || /^(?:#{1,4}\s*)?[a-z][a-z &'/-]{2,80}:\s*$/i.test(line)) section = "";
     if (target && line.toLowerCase().includes(target)) return section || fallback;
   }
   return fallback;

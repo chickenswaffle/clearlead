@@ -62,6 +62,12 @@ test("targeted profile never promotes a role or employer header as candidate evi
   assert.match(profile, /Windows support requests|Active Directory accounts/);
 });
 
+test("the first legitimate bullet after a role date remains eligible for the targeted profile", () => {
+  const dated = `# Taylor Example\n\nSupport Engineer\nAcme Corporation • Dallas, TX\n2022 - Present\n- Resolved Windows support requests and documented outcomes for end users.\n- Managed printer inventory.\n\n## Skills\nWindows`;
+  const draft = tailorResume(dated, { status: "live", title: "Support Engineer", description: "Windows support is required." });
+  assert.match(draft.markdown, /## Targeted Profile\n- Resolved Windows support requests/);
+});
+
 test("tailoring refuses unverified jobs", () => {
   assert.throws(() => tailorResume(resume, { status: "unverified", title: "Role" }), /verified-live/);
 });

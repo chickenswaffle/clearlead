@@ -170,7 +170,7 @@ function addTargetedProfile(lines, sourceLines, jobTerms, requirements) {
     const isBullet = /^\s*(?:[-*+•] |\d+[.)] )/.test(line);
     const evidence = trimmed.replace(/^\s*(?:[-*+•] |\d+[.)] )/, "").trim();
     const neighboringDate = [sourceLines[index - 1], sourceLines[index + 1]].some((value) => /\b(?:19|20)\d{2}\b/.test(String(value || "")));
-    const looksLikeRoleHeader = neighboringDate || (/[|•]/.test(trimmed) && !/[.!?]$/.test(trimmed));
+    const looksLikeRoleHeader = !isBullet && (neighboringDate || (/[|•]/.test(trimmed) && !/[.!?]$/.test(trimmed)));
     const narrativeClaim = evidence.split(/\s+/).length >= 6 && /\b(?:built|created|delivered|developed|experienced|implemented|improved|led|managed|provided|resolved|specialist|supported|troubleshot)\b/i.test(evidence);
     const isClaim = evidence.length >= 24 && (isBullet || narrativeClaim) && !looksLikeRoleHeader && !/^#{1,6}\s|^(?:19|20)\d{2}\b|^[^@\s]+@[^@\s]+$|^https?:\/\//i.test(trimmed);
     return { sourceLine: index + 1, evidence, score: isClaim ? scoreLine(evidence, jobTerms) : 0, drivers: requirementDrivers(evidence, requirements) };

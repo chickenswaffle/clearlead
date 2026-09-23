@@ -179,6 +179,11 @@ test("a user-approved board handoff binds one evidenced external ATS form", asyn
   }, { origin, authorization: `Bearer ${pairing.body.token}` });
   assert.equal(sameTitleWrongEmployer.status, 400);
   assert.match(sameTitleWrongEmployer.body.error, /could not prove/i);
+  const sharedIndustryWrongEmployer = await direct(server, "POST", "/api/extension/transition", {
+    runId: session.body.runId, pageUrl: "https://jobs.lever.co/evil-health/it-support-123/apply", pageTitle: "IT Support Specialist — Evil Health", identityText: "Apply for IT Support Specialist at Evil Health", referrer: "", inspection: { atsFamily: "lever", phase: "application", fieldCount: 5 }, userApproved: true,
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(sharedIndustryWrongEmployer.status, 400);
+  assert.match(sharedIndustryWrongEmployer.body.error, /could not prove/i);
   const bound = await direct(server, "POST", "/api/extension/transition", {
     runId: session.body.runId, pageUrl: applicationUrl, pageTitle: "IT Support Specialist — Acme", identityText: "Apply for IT Support Specialist at Acme", referrer: "", inspection: { atsFamily: "lever", phase: "application", fieldCount: 5 }, userApproved: true,
   }, { origin, authorization: `Bearer ${pairing.body.token}` });
