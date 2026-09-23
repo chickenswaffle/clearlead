@@ -85,3 +85,20 @@ test("required heading context also stops at colonless responsibility headings",
   assert.equal(result.items.find((item) => item.code === "skill-windows").importance, "required");
   assert.equal(result.items.find((item) => item.code === "skill-active-directory").importance, "preferred");
 });
+
+test("common years-before-domain and experience-prefix requirements are detected", () => {
+  for (const requirement of ["3+ years in IT support", "Experience: 3+ years supporting Windows"]) {
+    const result = analyzeQualifications({ description: `Minimum Qualifications\n${requirement}` }, { text: "Support associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    const experience = result.items.find((item) => item.code === "experience-years");
+    assert.equal(experience?.importance, "required", requirement);
+    assert.equal(experience?.status, "missing", requirement);
+    assert.match(experience?.postingEvidence || "", /3\+ years/i, requirement);
+  }
+});
+
+test("posting-side negation does not invent missing degree or certification gates", () => {
+  const result = analyzeQualifications({ description: "A+ certification is not required. No bachelor's degree is required." }, { text: "IT support" });
+  assert.equal(result.items.some((item) => item.code === "cert-a"), false);
+  assert.equal(result.items.some((item) => item.code === "education"), false);
+  assert.equal(result.counts.missing, 0);
+});

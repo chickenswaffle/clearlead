@@ -142,3 +142,19 @@ test("search excludes hard-ineligible roles and reports rejection reasons", asyn
   assert.ok(result.rejectionReasons.some((reason) => reason.code === "skillbridge-only" && reason.count === 1));
   assert.ok(result.rejectionReasons.some((reason) => reason.code === "stale-posting" && reason.count === 1));
 });
+
+test("search hides unsupported experience gates but retains explicitly negated gates", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "Years Corp", location: "Dallas", url: "https://jobs.lever.co/years/1", postedAt: "2026-09-21T00:00:00Z", description: "Minimum Qualifications\n3+ years in IT support" },
+    { title: "IT Support Specialist", company: "Open Corp", location: "Dallas", url: "https://jobs.lever.co/open/2", postedAt: "2026-09-21T00:00:00Z", description: "Support Windows users. A+ certification is not required. No bachelor's degree is required." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Associate\n2025 - Present\nSupported Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(result.jobs.map((job) => job.company), ["Open Corp"]);
+  assert.equal(result.allJobs.find((job) => job.company === "Years Corp")?.match.decision.code, "skip");
+  assert.equal(result.allJobs.find((job) => job.company === "Open Corp")?.match.qualifications.counts.missing, 0);
+  assert.equal(result.funnel.fitSkipped, 1);
+});

@@ -1,7 +1,12 @@
 import { analyzeResume } from "./resume.mjs";
 
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-const EXPERIENCE = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:[a-z0-9+#./-]+\s+){0,8}experience\b/gi;
+const YEAR_VALUE = "(?<years>\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+const EXPERIENCE_PATTERNS = [
+  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"),
+  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|$)){1,8}`, "gi"),
+  new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"),
+];
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
 const DEGREES = [
   { level: 3, name: "bachelor's degree", job: /\bbachelor(?:'s|’s|s)?\s+degree\b/i, candidate: /\bbachelor(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)?\b|\bb\.?[as]\.?\b/i },
@@ -19,9 +24,10 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
   const preferenceText = [...(profile.preferences || []), ...(profile.mustHaves || [])].join("\n");
   const items = [];
 
-  const requestedYears = maximumExperience(jobText);
-  const experienceEvidence = sentenceFor(jobText, EXPERIENCE);
-  if (requestedYears > 0) {
+  const experienceRequirement = maximumExperience(jobText);
+  if (experienceRequirement.years > 0) {
+    const requestedYears = experienceRequirement.years;
+    const experienceEvidence = experienceRequirement.evidence;
     const historyYears = datedHistoryYears(candidateText, now);
     const enoughDatedHistory = historyYears !== null && historyYears >= requestedYears;
     items.push(requirement({
@@ -35,18 +41,21 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
   const degree = DEGREES.find((item) => item.job.test(jobText));
   if (degree) {
     const postingEvidence = sentenceFor(jobText, degree.job);
-    const candidateDegree = DEGREES.find((item) => item.level >= degree.level && item.candidate.test(candidateText));
-    const equivalentAllowed = /\bor equivalent(?:\s+(?:combination|experience|education))?\b/i.test(postingEvidence || jobText);
-    items.push(requirement({
-      code: "education", label: degree.name, importance: importanceOf(postingEvidence, "required", jobText),
-      status: candidateDegree ? "met" : equivalentAllowed ? "uncertain" : "missing", postingEvidence,
-      candidateEvidence: candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) : "No matching degree line found.",
-      explanation: candidateDegree ? "Matching education evidence appears in the saved resume." : equivalentAllowed ? "The posting allows an equivalent path; confirm the resume makes that equivalency obvious." : "No matching degree evidence was found.",
-    }));
+    if (!shouldIgnoreRequirement(postingEvidence)) {
+      const candidateDegree = DEGREES.find((item) => item.level >= degree.level && item.candidate.test(candidateText));
+      const equivalentAllowed = /\bor equivalent(?:\s+(?:combination|experience|education))?\b/i.test(postingEvidence || jobText);
+      items.push(requirement({
+        code: "education", label: degree.name, importance: importanceOf(postingEvidence, "required", jobText),
+        status: candidateDegree ? "met" : equivalentAllowed ? "uncertain" : "missing", postingEvidence,
+        candidateEvidence: candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) : "No matching degree line found.",
+        explanation: candidateDegree ? "Matching education evidence appears in the saved resume." : equivalentAllowed ? "The posting allows an equivalent path; confirm the resume makes that equivalency obvious." : "No matching degree evidence was found.",
+      }));
+    }
   }
 
   for (const certification of mentionedCertifications(jobText)) {
     const postingEvidence = sentenceFor(jobText, new RegExp(escapeRegex(certification), "i"));
+    if (shouldIgnoreRequirement(postingEvidence)) continue;
     const importance = importanceOf(postingEvidence, PREFERRED.test(postingEvidence) ? "preferred" : "required", jobText);
     const present = containsToken(candidateText, certification);
     items.push(requirement({
@@ -59,9 +68,11 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
 
   const languageEvidence = sentenceFor(jobText, /\b(?:fluent|fluency|bilingual|proficien(?:t|cy))\b[^.!?;]{0,40}\b(?:spanish|french|mandarin|cantonese|german|japanese|korean|arabic)\b|\b(?:spanish|french|mandarin|cantonese|german|japanese|korean|arabic)\b[^.!?;]{0,30}\b(?:required|must|preferred)\b/i);
   if (languageEvidence) {
-    const language = languageEvidence.match(/\b(spanish|french|mandarin|cantonese|german|japanese|korean|arabic)\b/i)?.[1] || "specified language";
-    const candidateLine = evidenceLine(resumeText, new RegExp(`\\b${escapeRegex(language)}\\b`, "i"));
-    items.push(requirement({ code: `language-${language.toLowerCase()}`, label: `${language} proficiency`, importance: importanceOf(languageEvidence, "required", jobText), status: candidateLine ? "met" : "missing", postingEvidence: languageEvidence, candidateEvidence: candidateLine || "No matching language evidence found.", explanation: candidateLine ? "Language evidence appears in the saved resume." : "The saved resume does not prove this language requirement." }));
+    if (!shouldIgnoreRequirement(languageEvidence)) {
+      const language = languageEvidence.match(/\b(spanish|french|mandarin|cantonese|german|japanese|korean|arabic)\b/i)?.[1] || "specified language";
+      const candidateLine = evidenceLine(resumeText, new RegExp(`\\b${escapeRegex(language)}\\b`, "i"));
+      items.push(requirement({ code: `language-${language.toLowerCase()}`, label: `${language} proficiency`, importance: importanceOf(languageEvidence, "required", jobText), status: candidateLine ? "met" : "missing", postingEvidence: languageEvidence, candidateEvidence: candidateLine || "No matching language evidence found.", explanation: candidateLine ? "Language evidence appears in the saved resume." : "The saved resume does not prove this language requirement." }));
+    }
   }
 
   for (const [code, label, pattern] of [
@@ -69,7 +80,7 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
     ["travel", "travel requirement", /\b(?:travel(?:ing)?\s+(?:up to\s+)?\d{1,3}%|\d{1,3}%\s+travel)\b/i],
   ]) {
     const postingEvidence = sentenceFor(jobText, pattern);
-    if (!postingEvidence) continue;
+    if (!postingEvidence || shouldIgnoreRequirement(postingEvidence)) continue;
     const candidateEvidence = evidenceLine(preferenceText, pattern);
     const candidatePolarity = evidencePolarity(candidateEvidence);
     const importance = importanceOf(postingEvidence, "required", jobText);
@@ -88,26 +99,30 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
 
   const clearanceEvidence = sentenceFor(jobText, /\b(?:(?:active|current)\s+)?(?:security\s+)?clearance\b/i);
   if (clearanceEvidence) {
-    const candidateEvidence = evidenceLine(resumeText, /\b(?:(?:active|current)\s+)?(?:security\s+)?clearance\b/i);
-    items.push(requirement({
-      code: "security-clearance", label: "security clearance", importance: importanceOf(clearanceEvidence, "required", jobText),
-      status: candidateEvidence ? "met" : "missing", postingEvidence: clearanceEvidence,
-      candidateEvidence: candidateEvidence || "No matching clearance evidence found.",
-      explanation: candidateEvidence ? "Clearance evidence appears in the saved resume." : "The saved resume does not prove the requested clearance.",
-    }));
+    if (!shouldIgnoreRequirement(clearanceEvidence)) {
+      const candidateEvidence = evidenceLine(resumeText, /\b(?:(?:active|current)\s+)?(?:security\s+)?clearance\b/i);
+      items.push(requirement({
+        code: "security-clearance", label: "security clearance", importance: importanceOf(clearanceEvidence, "required", jobText),
+        status: candidateEvidence ? "met" : "missing", postingEvidence: clearanceEvidence,
+        candidateEvidence: candidateEvidence || "No matching clearance evidence found.",
+        explanation: candidateEvidence ? "Clearance evidence appears in the saved resume." : "The saved resume does not prove the requested clearance.",
+      }));
+    }
   }
 
   const locationEvidence = sentenceFor(jobText, /\b(?:must (?:reside|live|be located)|local candidates?|within \d{1,3} miles?|on[- ]site|onsite|in[- ]person|relocat(?:e|ion))\b/i);
   if (locationEvidence) {
-    const candidateLocation = normalize([applicationProfile.location, applicationProfile.city, applicationProfile.state].filter(Boolean).join(", "));
-    const jobLocation = normalize(job.location || "");
-    const overlap = locationTerms(candidateLocation).some((term) => locationTerms(jobLocation).includes(term));
-    items.push(requirement({
-      code: "location", label: "location / work-mode requirement", importance: importanceOf(locationEvidence, "required", jobText),
-      status: candidateLocation && overlap ? "met" : "uncertain", postingEvidence: locationEvidence,
-      candidateEvidence: candidateLocation ? `Saved application location: ${candidateLocation}.` : "No saved candidate location is available.",
-      explanation: candidateLocation && overlap ? "The saved location overlaps the posting location; confirm commute or relocation details." : "Confirm the location, commute, or relocation requirement before applying.",
-    }));
+    if (!shouldIgnoreRequirement(locationEvidence)) {
+      const candidateLocation = normalize([applicationProfile.location, applicationProfile.city, applicationProfile.state].filter(Boolean).join(", "));
+      const jobLocation = normalize(job.location || "");
+      const overlap = locationTerms(candidateLocation).some((term) => locationTerms(jobLocation).includes(term));
+      items.push(requirement({
+        code: "location", label: "location / work-mode requirement", importance: importanceOf(locationEvidence, "required", jobText),
+        status: candidateLocation && overlap ? "met" : "uncertain", postingEvidence: locationEvidence,
+        candidateEvidence: candidateLocation ? `Saved application location: ${candidateLocation}.` : "No saved candidate location is available.",
+        explanation: candidateLocation && overlap ? "The saved location overlaps the posting location; confirm commute or relocation details." : "Confirm the location, commute, or relocation requirement before applying.",
+      }));
+    }
   }
 
   const candidateSkills = new Set(analyzeResume(candidateText).skills);
@@ -116,6 +131,7 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
     if (skill === "itil" && seenCodes.has("cert-itil")) continue;
     if (skill === "security" && mentionedCertifications(jobText).some((certification) => /security/i.test(certification))) continue;
     const postingEvidence = sentenceFor(jobText, new RegExp(`\\b${escapeRegex(skill).replace(/\\ /g, "\\s+")}\\b`, "i"));
+    if (shouldIgnoreRequirement(postingEvidence)) continue;
     const importance = importanceOf(postingEvidence, "preferred", jobText);
     const present = candidateSkills.has(skill);
     items.push(requirement({
@@ -135,7 +151,21 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
 }
 
 function requirement(value) { return { ...value, postingEvidence: quote(value.postingEvidence), candidateEvidence: quote(value.candidateEvidence) }; }
-function maximumExperience(value) { let maximum = 0; for (const match of String(value || "").matchAll(EXPERIENCE)) maximum = Math.max(maximum, Number(match[1]) || YEAR_WORDS[String(match[1]).toLowerCase()] || 0); return maximum; }
+function maximumExperience(value) {
+  let result = { years: 0, evidence: "" };
+  for (const evidence of segments(value)) {
+    if (shouldIgnoreRequirement(evidence)) continue;
+    for (const pattern of EXPERIENCE_PATTERNS) {
+      pattern.lastIndex = 0;
+      for (const match of evidence.matchAll(pattern)) {
+        const rawYears = match.groups?.years || "";
+        const years = Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0;
+        if (years > result.years) result = { years, evidence };
+      }
+    }
+  }
+  return result;
+}
 function datedHistoryYears(value, now) {
   const intervals = [];
   for (const match of String(value || "").matchAll(DATE_RANGE)) {
@@ -164,7 +194,18 @@ function importanceOf(evidence, fallback, context = "") {
   }
   return fallback;
 }
-function sentenceFor(value, pattern) { return String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/).map((item) => item.trim()).find((item) => { pattern.lastIndex = 0; return pattern.test(item); }) || ""; }
+function segments(value) { return String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/).map((item) => item.trim()).filter(Boolean); }
+function sentenceFor(value, pattern) { return segments(value).find((item) => { pattern.lastIndex = 0; return pattern.test(item); }) || ""; }
+function shouldIgnoreRequirement(evidence) {
+  const text = normalize(evidence);
+  if (!text) return false;
+  const negated = /\bnot\s+(?:strictly\s+)?required\b/i.test(text)
+    || /\bno\b[^.!?;]{0,100}\b(?:is|are|will be)?\s*required\b/i.test(text)
+    || /\b(?:do|does)\s+not\s+require\b/i.test(text)
+    || /\bwithout\s+requiring\b/i.test(text);
+  const explicitlyPreferred = /\bnot\s+(?:strictly\s+)?required\b[^.!?;]{0,50}\b(?:but\s+)?preferred\b/i.test(text);
+  return negated && !explicitlyPreferred;
+}
 function evidenceLine(value, pattern) { return String(value || "").split(/\r?\n|[,;]+/).map((item) => item.trim()).find((item) => pattern.test(item)) || ""; }
 function containsToken(value, token) { return new RegExp(`(?:^|[^a-z0-9])${escapeRegex(token)}(?:$|[^a-z0-9+])`, "i").test(String(value)); }
 function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

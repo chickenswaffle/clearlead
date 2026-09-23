@@ -110,3 +110,28 @@ test("section-based minimum qualifications cannot receive an apply decision when
   assert.equal(match.qualifications.counts.missing, 2);
   assert.equal(match.decision.code, "skip");
 });
+
+test("years-before-domain requirements cannot receive a priority-apply decision", () => {
+  const match = rankJob({
+    title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://acme.example/jobs/2",
+    description: "Minimum Qualifications\n3+ years in IT support",
+  }, {
+    resume: { text: "IT Support Associate\n2025 - Present", keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.items.find((item) => item.code === "experience-years")?.status, "missing");
+  assert.equal(match.qualifications.counts.missing, 1);
+  assert.equal(match.decision.code, "skip");
+});
+
+test("negated posting requirements do not force a skip decision", () => {
+  const match = rankJob({
+    title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/3", postedAt: "2026-09-21T00:00:00Z",
+    description: "Support Windows users. A+ certification is not required. No bachelor's degree is required.",
+  }, {
+    resume: { text: "IT support for Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.counts.missing, 0);
+  assert.notEqual(match.decision.code, "skip");
+});

@@ -24,8 +24,13 @@ const SPECIAL_PROGRAMS = [
 const SENIOR_TITLE = /\b(?:senior|sr\.?|staff|principal|lead|manager|director|head|chief|vp|vice president)\b/i;
 const ACTIVE_CLEARANCE_REQUIRED = /\b(?:(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance|(?:top\s+secret|secret|ts\s*\/\s*sci)\s+(?:security\s+)?clearance\s+(?:is\s+)?required)\b/i;
 const CLEARANCE_EVIDENCE = /\b(?:active|current)\s+(?:(?:top\s+secret|secret|ts\s*\/\s*sci|sci)\s+)?(?:security\s+)?clearance\b|\b(?:top\s+secret|ts\s*\/\s*sci)\b/i;
-const EXPERIENCE_REQUIREMENT = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)[’']?\s*(?:of\s+)?(?:[a-z0-9+#./-]+\s+){0,8}experience\b/gi;
 const YEAR_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const YEAR_VALUE = "(?<years>\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+const EXPERIENCE_REQUIREMENTS = [
+  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s*(?:of\\s+)?(?:[a-z0-9+#./-]+\\s+){0,8}experience\\b`, "gi"),
+  new RegExp(`\\b${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)[’']?\\s+(?:in|with|supporting|working\\s+(?:in|with))\\s+(?:[a-z0-9+#./-]+(?:\\s+|$)){1,8}`, "gi"),
+  new RegExp(`\\bexperience\\s*:?\\s*(?:of\\s+|at\\s+least\\s+|minimum\\s+)?${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)\\b`, "gi"),
+];
 
 export function evaluateJobEligibility(job = {}, {
   resume = {},
@@ -124,6 +129,21 @@ function clean(value) { return String(value || "").replace(/\s+/g, " ").trim(); 
 function unique(values) { return [...new Set(values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean))]; }
 function maximumExperienceRequirement(value) {
   let maximum = 0;
-  for (const match of String(value || "").matchAll(EXPERIENCE_REQUIREMENT)) maximum = Math.max(maximum, Number(match[1]) || YEAR_WORDS[String(match[1]).toLowerCase()] || 0);
+  for (const segment of String(value || "").split(/(?<=[.!?;])\s+|\s*[•\n]\s*/)) {
+    if (postingRequirementIsNegated(segment)) continue;
+    for (const pattern of EXPERIENCE_REQUIREMENTS) {
+      pattern.lastIndex = 0;
+      for (const match of segment.matchAll(pattern)) {
+        const rawYears = match.groups?.years || "";
+        maximum = Math.max(maximum, Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0);
+      }
+    }
+  }
   return maximum;
+}
+function postingRequirementIsNegated(value) {
+  return /\bnot\s+(?:strictly\s+)?required\b/i.test(value)
+    || /\bno\b[^.!?;]{0,100}\b(?:is|are|will be)?\s*required\b/i.test(value)
+    || /\b(?:do|does)\s+not\s+require\b/i.test(value)
+    || /\bwithout\s+requiring\b/i.test(value);
 }
