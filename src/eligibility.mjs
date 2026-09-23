@@ -137,7 +137,7 @@ function maximumExperienceRequirement(value) {
       for (const match of clause.matchAll(pattern)) {
         const rawYears = match.groups?.years || "";
         const years = Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0;
-        if (contextual && !experienceRequirementContext(clause, section, years)) continue;
+        if (contextual && !experienceRequirementContext(clause, section, years, match[0])) continue;
         maximum = Math.max(maximum, years);
       }
     }
@@ -173,11 +173,14 @@ function qualificationSectionFor(evidence, context) {
   }
   return "";
 }
-function experienceRequirementContext(evidence, section, years) {
+function experienceRequirementContext(evidence, section, years, matchedText) {
   const text = clean(evidence);
   return Boolean(section)
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
-    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && (text.match(/[a-z0-9+#./'-]+/gi) || []).length <= 10)
+    || /\byou\s+should\s+have\b/i.test(evidence)
+    || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
+    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
+    || (years <= 15 && sameRequirementText(text, matchedText))
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
@@ -185,9 +188,12 @@ function organizationHistoryStatement(evidence) {
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
-  return String(value || "")
+  const contrastClauses = String(value || "")
     .replace(/^\s*(?:although|though)\s+/i, "")
-    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
-    .map((clause) => clause.replace(/^\s*(?:but|however|while|whereas|yet)\s*,?\s*/i, "").trim())
-    .filter(Boolean);
+    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet|although|though)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i);
+  return contrastClauses.flatMap((clause) => {
+    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
+    return polarity ? [polarity[1], polarity[2]] : [clause];
+  }).map((clause) => clause.trim()).filter(Boolean);
 }
+function sameRequirementText(evidence, matchedText) { return clean(evidence).replace(/[.!?]+$/, "") === clean(matchedText).replace(/[.!?]+$/, ""); }

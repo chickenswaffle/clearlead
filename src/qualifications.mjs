@@ -10,7 +10,7 @@ const EXPERIENCE_PATTERNS = [
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
 const DEGREES = [
   { level: 3, name: "bachelor's degree", job: /\bbachelor(?:'s|’s|s)?\s+degree\b/i, candidate: /\bbachelor(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)?\b|\bb\.?[as]\.?\b/i },
-  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)\b|\ba\.?[as]\.?\b/i },
+  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?\s+degree\b|\bassociate\s+of\s+(?:arts|science|applied science|business|engineering)\b|\bassociate\s+in\s+(?:arts|science|applied science)\b|\b(?:a\.?a\.?|a\.?s\.?|a\.?a\.?s\.?)\b/i },
   { level: 1, name: "high school diploma", job: /\b(?:high school diploma|ged)\b/i, candidate: /\b(?:high school diploma|ged)\b/i },
 ];
 const CERTIFICATIONS = ["A+", "Network+", "Security+", "ITIL", "CCNA", "MCSA", "MCP", "CompTIA"];
@@ -169,7 +169,7 @@ function maximumExperience(value) {
       for (const match of evidence.matchAll(pattern)) {
         const rawYears = match.groups?.years || "";
         const years = Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0;
-        if (contextual && !experienceRequirementContext(evidence, section, years)) continue;
+        if (contextual && !experienceRequirementContext(evidence, section, years, match[0])) continue;
         if (years > result.years) result = { years, evidence };
       }
     }
@@ -226,11 +226,14 @@ function shouldIgnoreRequirement(evidence) {
   const explicitlyPreferred = /\bnot\s+(?:strictly\s+)?required\b[^.!?;]{0,50}\b(?:but\s+)?preferred\b/i.test(text);
   return negated && !explicitlyPreferred;
 }
-function experienceRequirementContext(evidence, section, years) {
+function experienceRequirementContext(evidence, section, years, matchedText) {
   const text = normalize(evidence);
   return Boolean(section)
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
-    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && (text.match(/[a-z0-9+#./'-]+/gi) || []).length <= 10)
+    || /\byou\s+should\s+have\b/i.test(evidence)
+    || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
+    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
+    || (years <= 15 && sameRequirementText(text, matchedText))
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
@@ -238,12 +241,15 @@ function organizationHistoryStatement(evidence) {
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
-  return String(value || "")
+  const contrastClauses = String(value || "")
     .replace(/^\s*(?:although|though)\s+/i, "")
-    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
-    .map((clause) => clause.replace(/^\s*(?:but|however|while|whereas|yet)\s*,?\s*/i, "").trim())
-    .filter(Boolean);
+    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet|although|though)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i);
+  return contrastClauses.flatMap((clause) => {
+    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
+    return polarity ? [polarity[1], polarity[2]] : [clause];
+  }).map((clause) => clause.trim()).filter(Boolean);
 }
+function sameRequirementText(evidence, matchedText) { return normalize(evidence).replace(/[.!?]+$/, "") === normalize(matchedText).replace(/[.!?]+$/, ""); }
 function evidenceLine(value, pattern) { return String(value || "").split(/\r?\n|[,;]+/).map((item) => item.trim()).find((item) => pattern.test(item)) || ""; }
 function containsToken(value, token) { return new RegExp(`(?:^|[^a-z0-9])${escapeRegex(token)}(?:$|[^a-z0-9+])`, "i").test(String(value)); }
 function escapeRegex(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

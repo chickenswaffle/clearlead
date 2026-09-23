@@ -204,3 +204,26 @@ test("candidate-has tenure is enforced while year-leading marketing remains acti
   assert.equal(marketing.qualifications.counts.missing, 0);
   assert.notEqual(marketing.decision.code, "skip");
 });
+
+test("and-polarity and natural candidate-tenure wording cannot rank apply", () => {
+  for (const description of ["A+ is optional and Network+ is required.", "You should have 5+ years of IT support experience.", "We are looking for someone with 5+ years of IT support experience."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/11", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT Support Associate in Dallas\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 1, description);
+    assert.equal(match.decision.code, "skip", description);
+  }
+});
+
+test("employment associate does not satisfy education while ten-year marketing stays visible", () => {
+  const options = {
+    resume: { text: "IT Support Associate in Dallas\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  };
+  const degree = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/12", postedAt: "2026-09-21T00:00:00Z", description: "Associate degree is required." }, options);
+  const marketing = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/13", postedAt: "2026-09-21T00:00:00Z", description: "10 years of IT support experience powers Acme customer service." }, options);
+  assert.equal(degree.decision.code, "skip");
+  assert.equal(marketing.qualifications.counts.missing, 0);
+  assert.notEqual(marketing.decision.code, "skip");
+});

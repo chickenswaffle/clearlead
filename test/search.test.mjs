@@ -212,3 +212,20 @@ test("search enforces no-comma, candidate-has, and lower-degree gates without hi
   assert.equal(result.funnel.fitSkipped, 3);
   assert.equal(result.allJobs.find((job) => job.company === "Marketing Corp")?.match.qualifications.counts.missing, 0);
 });
+
+test("search enforces and-polarity, natural tenure, and academic degrees without hiding ten-year marketing", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "And Corp", location: "Dallas", url: "https://jobs.lever.co/and/1", postedAt: "2026-09-21T00:00:00Z", description: "A+ is optional and Network+ is required." },
+    { title: "IT Support Specialist", company: "Should Corp", location: "Dallas", url: "https://jobs.lever.co/should/2", postedAt: "2026-09-21T00:00:00Z", description: "You should have 5+ years of IT support experience." },
+    { title: "IT Support Specialist", company: "Looking Corp", location: "Dallas", url: "https://jobs.lever.co/looking/3", postedAt: "2026-09-21T00:00:00Z", description: "We are looking for someone with 5+ years of IT support experience." },
+    { title: "IT Support Specialist", company: "Degree Corp", location: "Dallas", url: "https://jobs.lever.co/degree/4", postedAt: "2026-09-21T00:00:00Z", description: "Associate degree is required." },
+    { title: "IT Support Specialist", company: "Ten Year Corp", location: "Dallas", url: "https://jobs.lever.co/ten-year/5", postedAt: "2026-09-21T00:00:00Z", description: "10 years of IT support experience powers Acme customer service." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Associate in Dallas\n2025 - Present\nSupported Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(result.jobs.map((job) => job.company), ["Ten Year Corp"]);
+  assert.equal(result.funnel.fitSkipped, 4);
+});

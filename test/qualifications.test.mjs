@@ -177,3 +177,25 @@ test("candidate-has tenure, clause-scoped degrees, and year-leading marketing st
   assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
   assert.equal(marketing.counts.missing, 0);
 });
+
+test("and or although can separate optional and required credentials", () => {
+  for (const connector of ["and", "although"]) {
+    const result = analyzeQualifications({ description: `A+ is optional ${connector} Network+ is required.` }, { text: "IT support" });
+    assert.equal(result.items.some((item) => item.code === "cert-a"), false, connector);
+    assert.equal(result.items.find((item) => item.code === "cert-network")?.status, "missing", connector);
+  }
+});
+
+test("natural candidate-tenure phrases are gates while trailing marketing prose is not", () => {
+  for (const description of ["You should have 5+ years of IT support experience.", "We are looking for someone with 5+ years of IT support experience."]) {
+    const result = analyzeQualifications({ description }, { text: "Support Associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    assert.equal(result.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+  }
+  const marketing = analyzeQualifications({ description: "10 years of IT support experience powers Acme customer service." }, { text: "IT support" });
+  assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
+});
+
+test("employment uses of associate do not prove an academic degree", () => {
+  const result = analyzeQualifications({ description: "Associate degree is required." }, { text: "Support Associate in Dallas" });
+  assert.equal(result.items.find((item) => item.code === "education")?.status, "missing");
+});
