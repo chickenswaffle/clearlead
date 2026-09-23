@@ -199,3 +199,30 @@ test("employment uses of associate do not prove an academic degree", () => {
   const result = analyzeQualifications({ description: "Associate degree is required." }, { text: "Support Associate in Dallas" });
   assert.equal(result.items.find((item) => item.code === "education")?.status, "missing");
 });
+
+test("polarity qualifiers before and do not erase the following requirement", () => {
+  for (const optional of ["A+ is optional for this role", "A+ is not required for this role"]) {
+    const result = analyzeQualifications({ description: `${optional} and Network+ is required.` }, { text: "IT support" });
+    assert.equal(result.items.some((item) => item.code === "cert-a"), false, optional);
+    assert.equal(result.items.find((item) => item.code === "cert-network")?.status, "missing", optional);
+  }
+});
+
+test("looking for someone who has tenure is a candidate requirement", () => {
+  for (const description of ["We are looking for someone who has 5+ years of IT support experience.", "We seek someone who has 5+ years of IT support experience."]) {
+    const result = analyzeQualifications({ description }, { text: "Support analyst\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+    assert.equal(result.items.find((item) => item.code === "experience-years")?.status, "missing", description);
+  }
+});
+
+test("plain as is not an associate degree abbreviation but uppercase academic forms are", () => {
+  const requirement = { description: "Associate degree is required." };
+  const employment = analyzeQualifications(requirement, { text: "Worked as an IT Support Specialist" });
+  assert.equal(employment.items.find((item) => item.code === "education")?.status, "missing");
+  for (const abbreviation of ["AA", "AS", "AAS", "A.S."]) {
+    const education = analyzeQualifications(requirement, { text: `Education\n${abbreviation} in Information Technology` });
+    const item = education.items.find((entry) => entry.code === "education");
+    assert.equal(item?.status, "met", abbreviation);
+    assert.match(item?.candidateEvidence || "", new RegExp(abbreviation.replaceAll(".", "\\.")));
+  }
+});

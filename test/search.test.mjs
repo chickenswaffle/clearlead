@@ -229,3 +229,19 @@ test("search enforces and-polarity, natural tenure, and academic degrees without
   assert.deepEqual(result.jobs.map((job) => job.company), ["Ten Year Corp"]);
   assert.equal(result.funnel.fitSkipped, 4);
 });
+
+test("search rejects qualified-and, someone-who-has, and plain-as degree false evidence", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "Qualified And Corp", location: "Dallas", url: "https://jobs.lever.co/qualified-and/1", postedAt: "2026-09-21T00:00:00Z", description: "A+ is optional for this role and Network+ is required." },
+    { title: "IT Support Specialist", company: "Who Has Corp", location: "Dallas", url: "https://jobs.lever.co/who-has/2", postedAt: "2026-09-21T00:00:00Z", description: "We are looking for someone who has 5+ years of IT support experience." },
+    { title: "IT Support Specialist", company: "Academic Corp", location: "Dallas", url: "https://jobs.lever.co/academic/3", postedAt: "2026-09-21T00:00:00Z", description: "Associate degree is required." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "Worked as an IT Support Specialist\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(result.jobs.length, 0);
+  assert.equal(result.funnel.fitSkipped, 3);
+  assert.ok(result.allJobs.every((job) => job.match.qualifications.counts.missing === 1));
+});

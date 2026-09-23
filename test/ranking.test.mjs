@@ -227,3 +227,23 @@ test("employment associate does not satisfy education while ten-year marketing s
   assert.equal(marketing.qualifications.counts.missing, 0);
   assert.notEqual(marketing.decision.code, "skip");
 });
+
+test("qualified-and polarity and someone-who-has tenure cannot rank apply", () => {
+  for (const description of ["A+ is optional for this role and Network+ is required.", "We are looking for someone who has 5+ years of IT support experience."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/14", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "Worked as an IT Support Specialist\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 1, description);
+    assert.equal(match.decision.code, "skip", description);
+  }
+});
+
+test("ordinary as prose cannot satisfy an associate degree gate", () => {
+  const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/15", postedAt: "2026-09-21T00:00:00Z", description: "Associate degree is required." }, {
+    resume: { text: "Worked as an IT Support Specialist", skills: ["windows"], keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.equal(match.qualifications.items.find((item) => item.code === "education")?.status, "missing");
+  assert.equal(match.decision.code, "skip");
+});

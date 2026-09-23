@@ -179,12 +179,13 @@ function experienceRequirementContext(evidence, section, years, matchedText) {
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
     || /\byou\s+should\s+have\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
+    || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+who\s+(?:has|have)\b/i.test(evidence)
     || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
     || (years <= 15 && sameRequirementText(text, matchedText))
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
-  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
+  if (/\b(?:candidates?|applicants?|someone|individuals?|persons?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
@@ -192,7 +193,7 @@ function splitRequirementClauses(value) {
     .replace(/^\s*(?:although|though)\s+/i, "")
     .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet|although|though)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i);
   return contrastClauses.flatMap((clause) => {
-    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
+    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b[^.;]{0,80}?)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
     return polarity ? [polarity[1], polarity[2]] : [clause];
   }).map((clause) => clause.trim()).filter(Boolean);
 }

@@ -10,7 +10,7 @@ const EXPERIENCE_PATTERNS = [
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
 const DEGREES = [
   { level: 3, name: "bachelor's degree", job: /\bbachelor(?:'s|’s|s)?\s+degree\b/i, candidate: /\bbachelor(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)?\b|\bb\.?[as]\.?\b/i },
-  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?\s+degree\b|\bassociate\s+of\s+(?:arts|science|applied science|business|engineering)\b|\bassociate\s+in\s+(?:arts|science|applied science)\b|\b(?:a\.?a\.?|a\.?s\.?|a\.?a\.?s\.?)\b/i },
+  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?\s+degree\b|\bassociate\s+of\s+(?:arts|science|applied science|business|engineering)\b|\bassociate\s+in\s+(?:arts|science|applied science)\b/i, abbreviation: /(?:^|[^A-Za-z])(?:AA|AS|AAS|A\.A\.|A\.S\.|A\.A\.S\.)(?=$|[^A-Za-z])/ },
   { level: 1, name: "high school diploma", job: /\b(?:high school diploma|ged)\b/i, candidate: /\b(?:high school diploma|ged)\b/i },
 ];
 const CERTIFICATIONS = ["A+", "Network+", "Security+", "ITIL", "CCNA", "MCSA", "MCP", "CompTIA"];
@@ -50,12 +50,13 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
     || degreeRequirements.sort((left, right) => right.degree.level - left.degree.level)[0];
   if (degreeRequirement) {
     const { degree, postingEvidence, importance } = degreeRequirement;
-    const candidateDegree = DEGREES.find((item) => item.level >= degree.level && item.candidate.test(candidateText));
+    const candidateDegree = DEGREES.find((item) => item.level >= degree.level && (item.candidate.test(candidateText) || item.abbreviation?.test(resumeText)));
+    const candidateDegreeEvidence = candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) || (candidateDegree.abbreviation ? evidenceLine(resumeText, candidateDegree.abbreviation) : "") : "";
     const equivalentAllowed = /\bor equivalent(?:\s+(?:combination|experience|education))?\b/i.test(postingEvidence);
     items.push(requirement({
       code: "education", label: degree.name, importance,
       status: candidateDegree ? "met" : equivalentAllowed ? "uncertain" : "missing", postingEvidence,
-      candidateEvidence: candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) : "No matching degree line found.",
+      candidateEvidence: candidateDegreeEvidence || "No matching degree line found.",
       explanation: candidateDegree ? "Matching education evidence appears in the saved resume." : equivalentAllowed ? "The posting allows an equivalent path; confirm the resume makes that equivalency obvious." : "No matching degree evidence was found.",
     }));
   }
@@ -232,12 +233,13 @@ function experienceRequirementContext(evidence, section, years, matchedText) {
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
     || /\byou\s+should\s+have\b/i.test(evidence)
     || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+with\b/i.test(evidence)
+    || /\b(?:looking\s+for|seeking|seek)\s+(?:(?:a|the)\s+)?(?:someone|candidates?|applicants?)\s+who\s+(?:has|have)\b/i.test(evidence)
     || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && /\bor equivalent experience\b/i.test(text))
     || (years <= 15 && sameRequirementText(text, matchedText))
     || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
-  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
+  if (/\b(?:candidates?|applicants?|someone|individuals?|persons?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
@@ -245,7 +247,7 @@ function splitRequirementClauses(value) {
     .replace(/^\s*(?:although|though)\s+/i, "")
     .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet|although|though)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i);
   return contrastClauses.flatMap((clause) => {
-    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
+    const polarity = clause.match(/^(.*\b(?:not\s+(?:required|needed|necessary|mandatory)|optional|preferred)\b[^.;]{0,80}?)\s+and\s+(.+\b(?:required|requires?|must|mandatory)\b.*)$/i);
     return polarity ? [polarity[1], polarity[2]] : [clause];
   }).map((clause) => clause.trim()).filter(Boolean);
 }
