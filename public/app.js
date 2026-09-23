@@ -216,13 +216,16 @@ function readApplicationProfile() {
     fullName: value('#full-name'), email: value('#application-email'), phone: value('#application-phone'), location: value('#application-location'),
     city: value('#application-city'), state: value('#application-state'), postalCode: value('#application-postal'), country: value('#application-country'),
     linkedinUrl: value('#linkedin-url'), githubUrl: value('#github-url'), portfolioUrl: value('#portfolio-url'), desiredSalary: value('#desired-salary'),
-    workAuthorization: value('#work-authorization'), needsSponsorship: value('#needs-sponsorship'), relocation: value('#relocation'),
+    workAuthorization: value('#work-authorization'), needsSponsorship: value('#needs-sponsorship'),
+    age18OrOlder: value('#age-18'), backgroundCheckConsent: value('#background-consent'), restrictiveAgreement: value('#restrictive-agreement'),
+    otherLanguageFluency: value('#other-language'), priorSrsEmployment: value('#prior-srs'), currentSrsAssociate: value('#current-srs'),
+    currentHomeDepotAssociate: value('#current-home-depot'), relatedIndustryExperience: value('#related-industry'), relocation: value('#relocation'),
   };
 }
 
 function showApplicationProfile(profile = {}, state = {}) {
-  const fields = {'#full-name':'fullName','#application-email':'email','#application-phone':'phone','#application-location':'location','#application-city':'city','#application-state':'state','#application-postal':'postalCode','#application-country':'country','#linkedin-url':'linkedinUrl','#github-url':'githubUrl','#portfolio-url':'portfolioUrl','#desired-salary':'desiredSalary','#work-authorization':'workAuthorization','#needs-sponsorship':'needsSponsorship','#relocation':'relocation'};
-  const choiceFields = new Set(['#work-authorization', '#needs-sponsorship', '#relocation']);
+  const fields = {'#full-name':'fullName','#application-email':'email','#application-phone':'phone','#application-location':'location','#application-city':'city','#application-state':'state','#application-postal':'postalCode','#application-country':'country','#linkedin-url':'linkedinUrl','#github-url':'githubUrl','#portfolio-url':'portfolioUrl','#desired-salary':'desiredSalary','#work-authorization':'workAuthorization','#needs-sponsorship':'needsSponsorship','#age-18':'age18OrOlder','#background-consent':'backgroundCheckConsent','#restrictive-agreement':'restrictiveAgreement','#other-language':'otherLanguageFluency','#prior-srs':'priorSrsEmployment','#current-srs':'currentSrsAssociate','#current-home-depot':'currentHomeDepotAssociate','#related-industry':'relatedIndustryExperience','#relocation':'relocation'};
+  const choiceFields = new Set(['#work-authorization', '#needs-sponsorship', '#age-18', '#background-consent', '#restrictive-agreement', '#other-language', '#prior-srs', '#current-srs', '#current-home-depot', '#related-industry', '#relocation']);
   for (const [selector, key] of Object.entries(fields)) document.querySelector(selector).value = profile[key] || (choiceFields.has(selector) ? 'unknown' : '');
   if (state.message && !state.ready) readiness.textContent = `${readiness.textContent} ${state.message}`.trim();
 }

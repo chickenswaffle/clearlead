@@ -3,8 +3,10 @@ const REVIEW = /(?:authori[sz]ed to work|work authori[sz]ation|sponsor|visa|sala
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "CLEARLEAD_FILL_SAFE_FIELDS") {
-    try { sendResponse(fillSafeFields(message.pack)); }
-    catch (error) { sendResponse({ filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: error.message }); }
+    fillSafeFields(message.pack)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ filled: 0, savedAnswers: 0, review: 0, blocked: 0, manual: 0, blockedPage: error.message }));
+    return true;
   }
   if (message?.type === "CLEARLEAD_CAPTURE_VERIFICATION") {
     try { sendResponse(captureVerificationEvidence()); }
@@ -94,7 +96,7 @@ function safePublicReferrer(value) {
   } catch { return ""; }
 }
 
-function fillSafeFields(pack) {
+async function fillSafeFields(pack) {
   const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;
   if (!allowedApplicationPage(pack, currentPage)) {
     return { filled: 0, review: 0, blocked: 0, manual: 0, blockedPage: `This page does not exactly match the verified application page. Open the prepared URL from ClearLead.` };
@@ -103,7 +105,7 @@ function fillSafeFields(pack) {
   if (inspection.phase !== "application") {
     return { filled: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, blockedPage: inspection.phase === "complete" ? "This application already appears complete." : "Open the employer's application form before filling fields." };
   }
-  const report = { filled: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, truthFingerprint: String(pack?.truth?.fingerprint || "") };
+  const report = { filled: 0, savedAnswers: 0, review: 0, blocked: 0, manual: 0, atsFamily: inspection.atsFamily, phase: inspection.phase, truthFingerprint: String(pack?.truth?.fingerprint || "") };
   const ats = globalThis.ClearLeadAdapters?.detect?.(location.href) || { id: "generic" };
   const scopedFields = globalThis.ClearLeadAdapters?.applicationFields?.(document, location.href);
   const fields = (Array.isArray(scopedFields) ? scopedFields : [...document.querySelectorAll("input:not([type='hidden']), select, textarea")]).filter(visible);
@@ -119,8 +121,113 @@ function fillSafeFields(pack) {
     else if (classification.status === "manual") report.manual += 1;
     else report.review += 1;
   }
+  const saved = await fillSavedAnswerControls(pack.answers || {});
+  report.filled += saved.filled;
+  report.savedAnswers = saved.filled;
+  report.review += saved.review;
   return report;
 }
+
+const SAVED_ANSWER_RULES = [
+  ["currentSrsAssociate", /currently an associate of srs distribution .*heritage family of companies or gms family of companies/],
+  ["currentHomeDepotAssociate", /currently an associate of the home depot or one of its subsidiaries/],
+  ["age18OrOlder", /are you at least 18 years of age or older/],
+  ["backgroundCheckConsent", /background check and drug screen.*acknowledge and agree/],
+  ["workAuthorization", /are you legally authorized to work in the united states/],
+  ["needsSponsorship", /require the company to support or sponsor you for any u s immigration benefit/],
+  ["relatedIndustryExperience", /previously worked in the building supply distribution outdoor products specialty business products retail or related/],
+  ["restrictiveAgreement", /written agreement with your previous employer.*restricts your right to compete/],
+  ["otherLanguageFluency", /fluent in a language other than english/],
+  ["priorSrsEmployment", /previously worked at srs distribution/],
+];
+
+function savedAnswerForQuestion(question, answers = {}) {
+  const normalized = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const rule = SAVED_ANSWER_RULES.find(([, pattern]) => pattern.test(normalized));
+  if (!rule) return null;
+  const value = answers[rule[0]];
+  return value === "yes" || value === "no" ? { key: rule[0], value } : null;
+}
+
+async function fillSavedAnswerControls(answers) {
+  const report = { filled: 0, review: 0 };
+  if (!answers || typeof answers !== "object") return report;
+  if (!Object.values(answers).some((value) => value === "yes" || value === "no")) return report;
+  const groups = [...document.querySelectorAll('[role="group"], fieldset')];
+  for (const group of groups) {
+    const matched = savedAnswerForQuestion(group.textContent, answers);
+    if (!matched) continue;
+    const existing = selectedYesNo(group);
+    if (existing) {
+      const existingControl = answerControl(group) || group.querySelector("select") || group.querySelector('input[type="radio"]:checked');
+      if (existingControl) decorate(existingControl, "review", `Saved answer preserved: ${existing}`);
+      continue;
+    }
+    const nativeSelect = group.querySelector("select");
+    if (nativeSelect) {
+      if (assign(nativeSelect, matched.value)) {
+        decorate(nativeSelect, "safe", `Confirmed answer reused: ${matched.value}`);
+        report.filled += 1;
+      } else report.review += 1;
+      continue;
+    }
+    const radios = [...group.querySelectorAll('input[type="radio"]')];
+    const radio = radios.find((item) => yesNoText(item, group) === matched.value);
+    if (radio) {
+      setNativeChecked(radio, true);
+      decorate(radio, "safe", `Confirmed answer reused: ${matched.value}`);
+      report.filled += 1;
+      continue;
+    }
+    const button = answerControl(group);
+    if (!button) { report.review += 1; continue; }
+    dispatchMouseClick(button);
+    await shortWait();
+    const option = [...document.querySelectorAll('[role="option"]')]
+      .filter(visible)
+      .find((item) => String(item.textContent || "").trim().toLowerCase() === matched.value);
+    if (!option) { decorate(button, "review", "Saved answer found, but this control needs manual selection"); report.review += 1; continue; }
+    dispatchMouseClick(option);
+    await shortWait();
+    decorate(button, "safe", `Confirmed answer reused: ${matched.value}`);
+    report.filled += 1;
+  }
+  return report;
+}
+
+function answerControl(group) {
+  return [...group.querySelectorAll("button")].find((button) => !/\b(?:back|next|continue|submit|apply)\b/i.test(String(button.textContent || ""))) || null;
+}
+function selectedYesNo(group) {
+  const select = group.querySelector("select");
+  if (select && /^(?:yes|no)$/i.test(String(select.value || ""))) return String(select.value).toLowerCase();
+  const checked = group.querySelector('input[type="radio"]:checked');
+  if (checked) return yesNoText(checked, group);
+  const button = answerControl(group);
+  const text = String(button?.textContent || "").trim().toLowerCase();
+  return /^(?:yes|no)$/.test(text) ? text : "";
+}
+function yesNoText(field, group) {
+  const own = [field.value, field.getAttribute?.("aria-label")].filter(Boolean).join(" ").toLowerCase();
+  if (/\byes\b/.test(own)) return "yes";
+  if (/\bno\b/.test(own)) return "no";
+  if (field.id) {
+    const label = group.querySelector(`label[for="${CSS.escape(field.id)}"]`);
+    const text = String(label?.textContent || "").trim().toLowerCase();
+    if (/^(?:yes|no)$/.test(text)) return text;
+  }
+  return "";
+}
+function setNativeChecked(field, checked) {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "checked")?.set;
+  if (setter) setter.call(field, checked); else field.checked = checked;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  field.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function dispatchMouseClick(element) {
+  element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: globalThis.window }));
+}
+function shortWait() { return new Promise((resolve) => setTimeout(resolve, 40)); }
 
 function attachSelectedResume(pack, resume = {}) {
   const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;

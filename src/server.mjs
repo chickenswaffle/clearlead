@@ -617,6 +617,10 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     "fullName", "firstName", "lastName", "email", "phone", "location", "city", "state", "postalCode", "country",
     "linkedinUrl", "githubUrl", "portfolioUrl",
   ].map((key) => [key, applicationProfile[key] || ""]));
+  const savedAnswers = Object.fromEntries([
+    "workAuthorization", "needsSponsorship", "age18OrOlder", "backgroundCheckConsent", "restrictiveAgreement",
+    "otherLanguageFluency", "priorSrsEmployment", "currentSrsAssociate", "currentHomeDepotAssociate", "relatedIndustryExperience",
+  ].map((key) => [key, applicationProfile[key]]).filter(([, value]) => value === "yes" || value === "no"));
   return {
     id: runId || randomUUID(),
     preparedAt: new Date().toISOString(),
@@ -628,7 +632,8 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     resume: resumeDraft,
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
-    policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links"], review: ["work authorization", "sponsorship", "salary", "relocation", "free-text answers", "checkboxes", "radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "legal attestations"] },
+    answers: savedAnswers,
+    policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links", "saved exact-match answers"], review: ["unsaved eligibility answers", "salary", "relocation", "free-text answers", "unrecognized checkboxes or radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "unrecognized legal attestations"] },
   };
 }
 function restoreApplicationResume(store, run) {

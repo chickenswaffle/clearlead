@@ -22,7 +22,7 @@ test("application copilot pairs by hash and serves only verified-job-bound packs
   await direct(server, "POST", "/api/resume", { text: resume, filename: "resume.md" });
   const search = await direct(server, "POST", "/api/search", { boards: ["acme"], query: "platform", autoVerify: true, verifyLimit: 5 });
   const verificationId = search.body.jobs[0].verification.verificationId;
-  const profile = await direct(server, "POST", "/api/application-profile", { fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567", city: "Chicago", state: "IL", country: "United States" });
+  const profile = await direct(server, "POST", "/api/application-profile", { fullName: "Taylor Example", email: "taylor@example.com", phone: "+1 555 123 4567", city: "Chicago", state: "IL", country: "United States", workAuthorization: "yes", age18OrOlder: "yes", restrictiveAgreement: "no" });
   assert.equal(profile.body.readiness.ready, true);
   const pairing = await direct(server, "POST", "/api/extension/pair", {});
   assert.equal(pairing.status, 200);
@@ -40,6 +40,7 @@ test("application copilot pairs by hash and serves only verified-job-bound packs
   assert.equal(pack.body.profile.email, "taylor@example.com");
   assert.equal(pack.body.profile.desiredSalary, undefined);
   assert.equal(pack.body.profile.workAuthorization, undefined);
+  assert.deepEqual(pack.body.answers, { workAuthorization: "yes", age18OrOlder: "yes", restrictiveAgreement: "no" });
   assert.equal(pack.body.job.applicationUrl, "https://boards.greenhouse.io/acme/apply?job=1");
   assert.doesNotMatch(JSON.stringify(pack.body), /attacker\.example/);
   assert.equal(pack.body.job.finalUrl, "https://boards.greenhouse.io/acme/apply?job=1");

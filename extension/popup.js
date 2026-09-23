@@ -146,7 +146,8 @@ async function fillCurrentPage() {
     const afterFill = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
     const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, afterFill || inspection, report);
     renderPageState(afterFill || inspection, pack);
-    show(`${report.filled} repeatable field${report.filled === 1 ? "" : "s"} filled. ${report.review + report.blocked + report.manual} item${report.review + report.blocked + report.manual === 1 ? "" : "s"} need your attention. ${runMessage(recorded.run)} Nothing was submitted.`, recorded.run?.status === "needs_review", recorded.run?.status !== "needs_review");
+    const answerNote = report.savedAnswers ? ` ${report.savedAnswers} came from answers you previously confirmed.` : "";
+    show(`${report.filled} repeatable field${report.filled === 1 ? "" : "s"} filled.${answerNote} ${report.review + report.blocked + report.manual} item${report.review + report.blocked + report.manual === 1 ? "" : "s"} need your attention. ${runMessage(recorded.run)} Nothing was submitted.`, recorded.run?.status === "needs_review", recorded.run?.status !== "needs_review");
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }

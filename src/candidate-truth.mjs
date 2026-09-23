@@ -72,6 +72,10 @@ function applicationAnswers(profile) {
     ["contact.city", profile.city], ["contact.state", profile.state], ["contact.postalCode", profile.postalCode], ["contact.country", profile.country],
     ["link.linkedin", profile.linkedinUrl], ["link.github", profile.githubUrl], ["link.portfolio", profile.portfolioUrl],
     ["eligibility.workAuthorization", profile.workAuthorization], ["eligibility.needsSponsorship", profile.needsSponsorship],
+    ["eligibility.age18OrOlder", profile.age18OrOlder], ["eligibility.backgroundCheckConsent", profile.backgroundCheckConsent],
+    ["eligibility.restrictiveAgreement", profile.restrictiveAgreement], ["eligibility.otherLanguageFluency", profile.otherLanguageFluency],
+    ["employment.priorSrsEmployment", profile.priorSrsEmployment], ["employment.currentSrsAssociate", profile.currentSrsAssociate],
+    ["employment.currentHomeDepotAssociate", profile.currentHomeDepotAssociate], ["employment.relatedIndustryExperience", profile.relatedIndustryExperience],
     ["preference.relocation", profile.relocation], ["preference.desiredSalary", profile.desiredSalary],
   ];
   return fields.map(([key, value]) => ({
@@ -79,7 +83,7 @@ function applicationAnswers(profile) {
     value: String(value || ""),
     status: value && value !== "unknown" ? "known" : "unknown",
     source: "application-profile",
-    reviewRequired: key.startsWith("eligibility.") || key.startsWith("preference."),
+    reviewRequired: key.startsWith("eligibility.") || key.startsWith("employment.") || key.startsWith("preference."),
   }));
 }
 

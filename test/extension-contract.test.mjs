@@ -230,7 +230,47 @@ test("field policy fails closed on third-party contacts and preserves meaningful
   assert.equal(context.__policy.hasValue({ tagName: "SELECT", selectedIndex: 0, value: "yes" }), true);
 });
 
-test("runtime safe-fill changes only fields and never activates a submission path", () => {
+test("saved answer memory matches only recognized yes/no questions", () => {
+  const context = { chrome: { runtime: { onMessage: { addListener() {} } } } };
+  vm.runInNewContext(`${content}\n;globalThis.__savedAnswer = savedAnswerForQuestion;`, context);
+  const answers = { age18OrOlder: "yes", workAuthorization: "yes", needsSponsorship: "no", restrictiveAgreement: "no", backgroundCheckConsent: "yes" };
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Are you at least 18 years of age or older?", answers))), { key: "age18OrOlder", value: "yes" });
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Do you currently require the Company to support or sponsor you for any U.S. immigration benefit?", answers))), { key: "needsSponsorship", value: "no" });
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__savedAnswer("Do you have any written agreement with your previous employer that restricts your right to compete?", answers))), { key: "restrictiveAgreement", value: "no" });
+  assert.equal(context.__savedAnswer("Have you ever been convicted of a crime?", answers), null);
+  assert.equal(context.__savedAnswer("What salary do you expect?", answers), null);
+});
+
+test("saved answer memory selects a recognized Workday-style yes/no control without submitting", async () => {
+  let open = false;
+  let selected = "";
+  const button = {
+    textContent: "Select One", dataset: {}, style: {},
+    dispatchEvent(event) { if (event.type === "click") open = true; return true; },
+  };
+  const option = {
+    textContent: "Yes", dataset: {}, style: {},
+    getBoundingClientRect() { return { width: 100, height: 30 }; },
+    dispatchEvent(event) { if (event.type === "click") { selected = "yes"; button.textContent = "Yes"; open = false; } return true; },
+  };
+  const group = {
+    textContent: "Are you at least 18 years of age or older? Select One",
+    querySelector() { return null; },
+    querySelectorAll(selector) { return selector === "button" ? [button] : []; },
+  };
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } }, MouseEvent: class { constructor(type) { this.type = type; } },
+    setTimeout, window: {}, getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    document: { querySelectorAll(selector) { if (selector === '[role="group"], fieldset') return [group]; if (selector === '[role="option"]') return open ? [option] : []; return []; } },
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__fillAnswers = fillSavedAnswerControls;`, context);
+  const report = await context.__fillAnswers({ age18OrOlder: "yes" });
+  assert.equal(selected, "yes");
+  assert.deepEqual(JSON.parse(JSON.stringify(report)), { filled: 1, review: 0 });
+  assert.equal(button.dataset.clearleadStatus, "safe");
+});
+
+test("runtime safe-fill changes only fields and never activates a submission path", async () => {
   const calls = { submit: 0, requestSubmit: 0, click: 0, fetch: 0, submitEvent: 0, fieldEvents: [] };
   const form = { submit() { calls.submit += 1; }, requestSubmit() { calls.requestSubmit += 1; }, addEventListener(type) { if (type === "submit") calls.submitEvent += 1; } };
   const button = { click() { calls.click += 1; } };
@@ -259,7 +299,7 @@ test("runtime safe-fill changes only fields and never activates a submission pat
     button,
   };
   vm.runInNewContext(`${content}\n;globalThis.__fill = fillSafeFields;`, context);
-  const report = context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" }, truth: { fingerprint: "abc123" } });
+  const report = await context.__fill({ allowedPages: ["https://apply.example.com/form?job=7"], profile: { email: "taylor@example.com" }, truth: { fingerprint: "abc123" } });
   assert.equal(report.filled, 1);
   assert.equal(report.atsFamily, "greenhouse");
   assert.equal(report.truthFingerprint, "abc123");
