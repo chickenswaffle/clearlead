@@ -1,5 +1,6 @@
 const YES_NO_UNKNOWN = new Set(["yes", "no", "unknown"]);
 const WORK_ARRANGEMENTS = new Set(["onsite", "hybrid", "either", "remote", "unknown"]);
+const START_AVAILABILITY = new Set(["immediate", "one-week", "two-weeks", "unknown"]);
 
 export function normalizeApplicationProfile(input = {}) {
   const fullName = clean(input.fullName, 140);
@@ -30,6 +31,7 @@ export function normalizeApplicationProfile(input = {}) {
     relatedIndustryExperience: choice(input.relatedIndustryExperience),
     relocation: choice(input.relocation),
     workArrangement: enumeratedChoice(input.workArrangement, WORK_ARRANGEMENTS),
+    startAvailability: enumeratedChoice(input.startAvailability, START_AVAILABILITY),
     desiredSalary: clean(input.desiredSalary, 120),
     savedAt: validIso(input.savedAt) || new Date().toISOString(),
   };

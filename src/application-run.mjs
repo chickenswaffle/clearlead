@@ -174,7 +174,7 @@ function sanitizeNavigation(value) {
 }
 
 function compactJob(job = {}) {
-  const result = Object.fromEntries(["title", "company", "location", "source", "url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
+  const result = Object.fromEntries(["title", "company", "location", "salary", "source", "url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl", "checkedAt", "reason"].map((key) => [key, String(job[key] || "").slice(0, ["url", "postingUrl", "resumeJobUrl", "finalUrl", "applicationUrl"].includes(key) ? 2_000 : 300)]));
   result.httpStatus = count(job.httpStatus);
   result.handoffBound = job.handoffBound === true;
   return result;

@@ -98,7 +98,7 @@
   function applicationRootFor(documentRef, definition) { return definition?.applicationRoots.map((selector) => documentRef.querySelector?.(selector)).find(Boolean) || null; }
   function stepTitle(documentRef, adapterId) {
     const selectors = adapterId === "workday"
-      ? ["[data-automation-id='stepTitle']", "[data-automation-id='progressBar'] [aria-current='step']", "h1", "h2"]
+      ? ["[data-automation-id='stepTitle']", "[data-automation-id='sectionTitle']", "[data-automation-id='progressBar'] [aria-current='step']", "h3", "h1", "h2"]
       : adapterId === "smartrecruiters"
         ? ["[data-test='step-title']", "[data-testid='step-title']", "[aria-current='step']", "h1", "h2"]
         : ["h1", "h2"];

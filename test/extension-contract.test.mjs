@@ -19,7 +19,8 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.equal(manifest.side_panel.default_path, "popup.html");
   assert.equal(manifest.action.default_popup, undefined);
   assert.match(background, /openPanelOnActionClick:\s*true/);
-  assert.match(popupHtml, /Fill this step/);
+  assert.match(popupHtml, /Fill safe fields now/);
+  assert.match(popupHtml, /Auto-fill each safe step/);
   assert.match(popupHtml, /Attach selected resume/);
   assert.doesNotMatch(content, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
   assert.doesNotMatch(popup, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
@@ -31,6 +32,9 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.doesNotMatch(content, /dispatchEvent\(new Event\(["']submit/);
   assert.deepEqual(manifest.content_scripts[0].js, ["adapters.js", "content.js"]);
   assert.doesNotMatch(adapters, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
+  assert.match(popup, /clearleadAutoFill/);
+  assert.match(popup, /setInterval\(pollAutomaticFill/);
+  assert.match(popup, /Review-only target/);
 });
 
 test("ATS registry detects the first supported application families", () => {
@@ -270,6 +274,35 @@ test("saved answer memory selects a recognized Workday-style yes/no control with
   assert.equal(selected, "yes");
   assert.deepEqual(JSON.parse(JSON.stringify(report)), { filled: 1, review: 0 });
   assert.equal(button.dataset.clearleadStatus, "safe");
+});
+
+test("saved relative availability fills a Workday-style segmented date without navigating", () => {
+  const events = [];
+  const input = (label) => ({
+    type: "text", value: "", name: "", id: "", dataset: {}, style: {}, disabled: false,
+    getAttribute(name) { return name === "aria-label" ? label : ""; },
+    getBoundingClientRect() { return { width: 50, height: 30 }; },
+    dispatchEvent(event) { events.push(`${label}:${event.type}`); return true; },
+  });
+  const month = input("Month");
+  const day = input("Day");
+  const year = input("Year");
+  const group = {
+    textContent: "If selected, what is your earliest available start date?",
+    querySelectorAll(selector) { return selector === "input:not([type='hidden'])" ? [month, day, year] : []; },
+  };
+  const context = {
+    chrome: { runtime: { onMessage: { addListener() {} } } },
+    document: { querySelectorAll(selector) { return selector === '[role="group"], fieldset' ? [group] : []; } },
+    Event: class { constructor(type) { this.type = type; } },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    Date,
+  };
+  vm.runInNewContext(`${content}\n;globalThis.__fillStart = fillRelativeStartDate; globalThis.__relativeStart = relativeStartDate;`, context);
+  const result = context.__fillStart({ startAvailability: "two-weeks" }, new Date("2026-09-23T12:00:00-05:00"));
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { filled: 1, review: 0 });
+  assert.deepEqual([month.value, day.value, year.value], ["10", "7", "2026"]);
+  assert.deepEqual(events, ["Month:input", "Month:change", "Day:input", "Day:change", "Year:input", "Year:change"]);
 });
 
 test("runtime safe-fill changes only fields and never activates a submission path", async () => {

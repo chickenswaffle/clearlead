@@ -620,13 +620,13 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
   const savedAnswers = Object.fromEntries([
     "workAuthorization", "needsSponsorship", "age18OrOlder", "backgroundCheckConsent", "restrictiveAgreement",
     "otherLanguageFluency", "priorSrsEmployment", "currentSrsAssociate", "currentHomeDepotAssociate", "relatedIndustryExperience",
-    "relocation", "workArrangement",
-  ].map((key) => [key, applicationProfile[key]]).filter(([, value]) => ["yes", "no", "onsite", "hybrid", "either", "remote"].includes(value)));
+    "relocation", "workArrangement", "startAvailability",
+  ].map((key) => [key, applicationProfile[key]]).filter(([, value]) => ["yes", "no", "onsite", "hybrid", "either", "remote", "immediate", "one-week", "two-weeks"].includes(value)));
   return {
     id: runId || randomUUID(),
     preparedAt: new Date().toISOString(),
     expiresAt: Date.now() + 10 * 60 * 1000,
-    job: { title: job.title, company: job.company, location: job.location, source: job.source, url: verified.job?.url || postingUrl, postingUrl, resumeJobUrl, finalUrl: applicationUrl, applicationUrl, handoffBound: verified.job?.handoffBound === true, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
+    job: { title: job.title, company: job.company, location: job.location, salary: job.salary, source: job.source, url: verified.job?.url || postingUrl, postingUrl, resumeJobUrl, finalUrl: applicationUrl, applicationUrl, handoffBound: verified.job?.handoffBound === true, checkedAt: job.checkedAt, httpStatus: job.httpStatus, reason: job.reason },
     allowedPages,
     navigation,
     handoff: { canBind: verified.job?.handoffBound !== true, bound: verified.job?.handoffBound === true },
@@ -634,7 +634,7 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
     profile: safeProfile,
     answers: savedAnswers,
-    policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links", "saved exact-match answers"], review: ["unsaved eligibility answers", "salary", "start date", "free-text answers", "unrecognized checkboxes or radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "unrecognized legal attestations"] },
+    policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links", "saved exact-match answers", "saved relative start availability"], review: ["unsaved eligibility answers", "salary", "unsaved start date", "free-text answers", "unrecognized checkboxes or radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "unrecognized legal attestations"] },
   };
 }
 function restoreApplicationResume(store, run) {

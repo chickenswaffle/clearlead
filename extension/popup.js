@@ -6,8 +6,11 @@ const runCard = document.querySelector("#run-card");
 const noRun = document.querySelector("#no-run");
 const pageCard = document.querySelector("#page-card");
 const primaryActions = document.querySelector("#primary-actions");
+const autoFill = document.querySelector("#auto-fill");
 let activeSession = null;
 let activePack = null;
+let lastAutoFilledStep = "";
+let autoFillBusy = false;
 
 document.querySelector("#save-token").addEventListener("click", saveToken);
 document.querySelector("#capture").addEventListener("click", captureCurrentPage);
@@ -18,6 +21,7 @@ document.querySelector("#inspect").addEventListener("click", checkApplicationSta
 document.querySelector("#open-application").addEventListener("click", openPreparedApplication);
 document.querySelector("#refresh").addEventListener("click", refreshContext);
 document.querySelector("#forget").addEventListener("click", forgetToken);
+autoFill.addEventListener("change", updateAutoFillPreference);
 
 async function saveToken() {
   const token = document.querySelector("#token").value.trim();
@@ -65,6 +69,7 @@ async function refreshContext() {
     catch { return renderPageState(null, pack, "Reload the employer page after updating the extension, then refresh this panel."); }
     if (!inspection || inspection.inspectionError) return renderPageState(null, pack, inspection?.inspectionError || "Open the prepared employer application to begin.");
     renderPageState(inspection, pack);
+    await maybeAutoFillStep({ session, pack, tab, inspection });
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
 }
@@ -79,6 +84,10 @@ function renderSession(session) {
   if (!hasRun) return;
   document.querySelector("#job-title").textContent = session.job.title || "Prepared application";
   document.querySelector("#job-company").textContent = [session.job.company, session.job.location].filter(Boolean).join(" · ");
+  const pay = document.querySelector("#pay-guidance");
+  const guidance = compensationGuidance(session.job.salary);
+  pay.hidden = !guidance;
+  pay.textContent = guidance;
   document.querySelector("#bind").hidden = session.handoff?.canBind !== true;
   setProgress("open");
 }
@@ -138,18 +147,66 @@ async function fillCurrentPage() {
     if (!tab?.id) throw new Error("No active application tab is available.");
     const inspection = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
     if (!inspection || inspection.inspectionError) throw new Error(inspection?.inspectionError || "Reload the application page and try again.");
-    if (inspection.phase === "complete") throw new Error("This application already appears complete.");
-    if (inspection.phase !== "application") throw new Error("Open the employer's application form before filling fields.");
-    const report = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_FILL_SAFE_FIELDS", pack });
-    if (!report) throw new Error("Reload the application page and try again.");
-    if (report.blockedPage) throw new Error(report.blockedPage);
-    const afterFill = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
-    const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, afterFill || inspection, report);
-    renderPageState(afterFill || inspection, pack);
-    const answerNote = report.savedAnswers ? ` ${report.savedAnswers} came from answers you previously confirmed.` : "";
-    show(`${report.filled} repeatable field${report.filled === 1 ? "" : "s"} filled.${answerNote} ${report.review + report.blocked + report.manual} item${report.review + report.blocked + report.manual === 1 ? "" : "s"} need your attention. ${runMessage(recorded.run)} Nothing was submitted.`, recorded.run?.status === "needs_review", recorded.run?.status !== "needs_review");
+    await runSafeFill({ session, pack, tab, inspection, automatic: false });
   } catch (error) { show(error.message, true); }
   finally { button.disabled = false; }
+}
+
+async function runSafeFill({ session, pack, tab, inspection, automatic }) {
+  if (inspection.phase === "complete") {
+    const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, inspection);
+    renderPageState(inspection, pack);
+    show(runMessage(recorded.run), false, true);
+    return { report: null, recorded };
+  }
+  if (inspection.phase !== "application") throw new Error("Open the employer's application form before filling fields.");
+  const report = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_FILL_SAFE_FIELDS", pack });
+  if (!report) throw new Error("Reload the application page and try again.");
+  if (report.blockedPage) throw new Error(report.blockedPage);
+  const afterFill = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+  const recorded = await reportApplicationRun(session.capability, pack.id, tab.url, afterFill || inspection, report);
+  renderPageState(afterFill || inspection, pack);
+  const answerNote = report.savedAnswers ? ` ${report.savedAnswers} came from answers you previously confirmed.` : "";
+  const prefix = automatic ? "Safe-step fill ran automatically. " : "";
+  const attention = report.review + report.blocked + report.manual;
+  show(`${prefix}${report.filled} repeatable field${report.filled === 1 ? "" : "s"} filled.${answerNote} ${attention} item${attention === 1 ? "" : "s"} need your attention. ${runMessage(recorded.run)} Nothing was submitted.`, recorded.run?.status === "needs_review", recorded.run?.status !== "needs_review");
+  return { report, recorded };
+}
+
+async function maybeAutoFillStep({ session = activeSession, pack = activePack, tab, inspection }) {
+  if (!autoFill.checked || autoFillBusy || !session?.capability || !pack?.id || !tab?.id || !inspection) return;
+  if (!["application", "complete"].includes(inspection.phase)) return;
+  const signature = `${pack.id}:${tab.id}:${inspection.stepKey || inspection.phase}`;
+  if (signature === lastAutoFilledStep) return;
+  lastAutoFilledStep = signature;
+  autoFillBusy = true;
+  try {
+    await runSafeFill({ session, pack, tab, inspection, automatic: true });
+  } catch (error) {
+    lastAutoFilledStep = "";
+    show(`Automatic safe fill paused: ${error.message}`, true);
+  } finally {
+    autoFillBusy = false;
+  }
+}
+
+async function updateAutoFillPreference() {
+  await chrome.storage.local.set({ clearleadAutoFill: autoFill.checked });
+  lastAutoFilledStep = "";
+  show(autoFill.checked ? "Automatic safe-step fill is on. It will never navigate or submit." : "Automatic fill is off. Use Fill safe fields now on each step.", false, autoFill.checked);
+  if (autoFill.checked) await refreshContext();
+}
+
+async function pollAutomaticFill() {
+  if (document.hidden || !autoFill.checked || autoFillBusy || !activeSession?.capability || !activePack?.id) return;
+  try {
+    const tab = await activeTab();
+    if (!tab?.id || !/^https:\/\//i.test(String(tab.url || ""))) return;
+    const inspection = await chrome.tabs.sendMessage(tab.id, { type: "CLEARLEAD_INSPECT_APPLICATION" });
+    if (!inspection || inspection.inspectionError) return;
+    renderPageState(inspection, activePack);
+    await maybeAutoFillStep({ tab, inspection });
+  } catch {}
 }
 
 async function attachSelectedResume() {
@@ -240,6 +297,20 @@ function runMessage(run) {
   return "Application run saved. Continue on the employer page, then check status again.";
 }
 
+function compensationGuidance(value) {
+  const salary = String(value || "").replace(/\s+/g, " ").trim();
+  if (!salary) return "";
+  const hourly = /\b(?:hour|hourly|hr)\b/i.test(salary);
+  const amounts = [...salary.matchAll(/(?:\$|USD\s*)?(\d[\d,]*(?:\.\d+)?)/gi)]
+    .map((match) => Number(match[1].replace(/,/g, "")))
+    .filter((amount) => Number.isFinite(amount) && amount > 0);
+  if (hourly && amounts.length) {
+    const upper = Math.max(...amounts);
+    return `Posted pay: ${salary}. Review-only target: ${upper.toLocaleString("en-US", { maximumFractionDigits: 2 })}/hour at the top of the posted range.`;
+  }
+  return `Posted compensation: ${salary}. Review the job-specific range before answering pay questions.`;
+}
+
 async function captureCurrentPage() {
   const button = document.querySelector("#capture");
   button.disabled = true;
@@ -271,6 +342,7 @@ async function forgetToken() {
   await chrome.storage.local.remove("clearleadToken");
   activeSession = null;
   activePack = null;
+  lastAutoFilledStep = "";
   showReady(false);
   show("Pairing removed from this browser.");
 }
@@ -278,7 +350,10 @@ async function forgetToken() {
 function showReady(isReady) { pairing.hidden = isReady; ready.hidden = !isReady; }
 function show(message, error = false, success = false) { result.className = `active ${error ? "error" : success ? "success" : ""}`; result.textContent = message; }
 
-chrome.storage.local.get("clearleadToken").then(({ clearleadToken }) => {
+setInterval(pollAutomaticFill, 2000);
+
+chrome.storage.local.get(["clearleadToken", "clearleadAutoFill"]).then(({ clearleadToken, clearleadAutoFill }) => {
+  autoFill.checked = clearleadAutoFill !== false;
   showReady(Boolean(clearleadToken));
   if (clearleadToken) refreshContext();
 });

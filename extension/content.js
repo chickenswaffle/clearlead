@@ -110,6 +110,7 @@ async function fillSafeFields(pack) {
   const scopedFields = globalThis.ClearLeadAdapters?.applicationFields?.(document, location.href);
   const fields = (Array.isArray(scopedFields) ? scopedFields : [...document.querySelectorAll("input:not([type='hidden']), select, textarea")]).filter(visible);
   for (const field of fields) {
+    if (knownRelativeStartDateField(field, pack.answers || {})) continue;
     const descriptor = describe(field);
     const classification = classify(field, descriptor, pack.profile || {}, ats.id);
     decorate(field, classification.status, classification.reason);
@@ -125,6 +126,10 @@ async function fillSafeFields(pack) {
   report.filled += saved.filled;
   report.savedAnswers = saved.filled;
   report.review += saved.review;
+  const startDate = fillRelativeStartDate(pack.answers || {});
+  report.filled += startDate.filled;
+  report.savedAnswers += startDate.filled;
+  report.review += startDate.review;
   return report;
 }
 
@@ -242,6 +247,67 @@ function dispatchMouseClick(element) {
   element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: globalThis.window }));
 }
 function shortWait() { return new Promise((resolve) => setTimeout(resolve, 40)); }
+
+function knownRelativeStartDateField(field, answers = {}) {
+  if (!["immediate", "one-week", "two-weeks"].includes(answers.startAvailability)) return false;
+  const group = field.closest?.('[role="group"], fieldset');
+  return Boolean(group && /(?:earliest|available).*(?:start|available).*date|start date/i.test(String(group.textContent || "")));
+}
+
+function fillRelativeStartDate(answers = {}, now = new Date()) {
+  const preference = answers.startAvailability;
+  if (!["immediate", "one-week", "two-weeks"].includes(preference)) return { filled: 0, review: 0 };
+  const groups = [...document.querySelectorAll('[role="group"], fieldset')];
+  const group = groups.find((item) => /(?:earliest|available).*(?:start|available).*date|start date/i.test(String(item.textContent || "")));
+  if (!group) return { filled: 0, review: 0 };
+  const inputs = [...group.querySelectorAll("input:not([type='hidden'])")].filter(visible);
+  if (!inputs.length) return { filled: 0, review: 1 };
+  if (inputs.some(hasValue)) return { filled: 0, review: 0 };
+  const date = relativeStartDate(preference, now);
+  const iso = dateParts(date);
+  const dateInput = inputs.find((input) => String(input.type || "").toLowerCase() === "date");
+  if (dateInput) {
+    setNativeValue(dateInput, iso.iso);
+    decorate(dateInput, "safe", `Confirmed relative start availability: ${preference}`);
+    return { filled: 1, review: 0 };
+  }
+  const month = inputs.find((input) => /\bmonth\b|\bmm\b/i.test(dateDescriptor(input)));
+  const day = inputs.find((input) => /\bday\b|\bdd\b/i.test(dateDescriptor(input)));
+  const year = inputs.find((input) => /\byear\b|\byyyy\b/i.test(dateDescriptor(input)));
+  if (month && day && year) {
+    setNativeValue(month, String(iso.month));
+    setNativeValue(day, String(iso.day));
+    setNativeValue(year, String(iso.year));
+    [month, day, year].forEach((input) => decorate(input, "safe", `Confirmed relative start availability: ${preference}`));
+    return { filled: 1, review: 0 };
+  }
+  if (inputs.length === 1) {
+    setNativeValue(inputs[0], iso.display);
+    decorate(inputs[0], "safe", `Confirmed relative start availability: ${preference}`);
+    return { filled: 1, review: 0 };
+  }
+  return { filled: 0, review: 1 };
+}
+
+function relativeStartDate(preference, now = new Date()) {
+  const date = new Date(now);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + (preference === "two-weeks" ? 14 : preference === "one-week" ? 7 : 0));
+  if (date.getDay() === 6) date.setDate(date.getDate() + 2);
+  if (date.getDay() === 0) date.setDate(date.getDate() + 1);
+  return date;
+}
+
+function dateParts(date) {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  return { year, month, day, iso: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`, display: `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}` };
+}
+
+function dateDescriptor(field) {
+  return [field.getAttribute?.("aria-label"), field.getAttribute?.("placeholder"), field.name, field.id].filter(Boolean).join(" ");
+}
 
 function attachSelectedResume(pack, resume = {}) {
   const currentPage = `${location.origin}${normalizedPath(location.pathname)}${location.search}`;

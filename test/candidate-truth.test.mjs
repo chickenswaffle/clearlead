@@ -20,7 +20,7 @@ Windows, Linux, Active Directory`;
 test("candidate truth preserves source facts, metrics, and review boundaries", () => {
   const truth = buildCandidateTruth({
     resume: { text: resume, filename: "resume.md", savedAt: "2026-09-20T00:00:00Z" },
-    applicationProfile: { fullName: "Taylor Candidate", email: "taylor@example.com", workAuthorization: "yes", needsSponsorship: "unknown", age18OrOlder: "yes", restrictiveAgreement: "no", workArrangement: "either", savedAt: "2026-09-20T00:00:00Z" },
+    applicationProfile: { fullName: "Taylor Candidate", email: "taylor@example.com", workAuthorization: "yes", needsSponsorship: "unknown", age18OrOlder: "yes", restrictiveAgreement: "no", workArrangement: "either", startAvailability: "two-weeks", savedAt: "2026-09-20T00:00:00Z" },
     builtAt: "2026-09-22T00:00:00Z",
   });
   assert.equal(truth.schema, "clearlead-candidate-truth/v1");
@@ -37,6 +37,7 @@ test("candidate truth preserves source facts, metrics, and review boundaries", (
   assert.equal(truth.answers.find((answer) => answer.key === "eligibility.age18OrOlder").value, "yes");
   assert.equal(truth.answers.find((answer) => answer.key === "eligibility.restrictiveAgreement").value, "no");
   assert.equal(truth.answers.find((answer) => answer.key === "preference.workArrangement").value, "either");
+  assert.equal(truth.answers.find((answer) => answer.key === "preference.startAvailability").value, "two-weeks");
 });
 
 test("candidate truth summary exposes counts without resume or contact text", () => {

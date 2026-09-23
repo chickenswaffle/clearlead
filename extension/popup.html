@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="automation.css">
   <title>ClearLead Application Copilot</title>
 </head>
 <body>
@@ -29,10 +30,15 @@
         <p class="eyebrow">ACTIVE APPLICATION</p>
         <h1 id="job-title">Prepared job</h1>
         <p id="job-company" class="job-company"></p>
+        <p id="pay-guidance" class="pay-guidance" hidden></p>
         <div class="progress" aria-label="Application progress">
           <span id="progress-open" class="active">1</span><i></i><span id="progress-fill">2</span><i></i><span id="progress-review">3</span>
         </div>
         <div class="progress-labels"><span>Open</span><span>Fill</span><span>Review</span></div>
+        <label class="automation-toggle" for="auto-fill">
+          <input id="auto-fill" type="checkbox">
+          <span><strong>Auto-fill each safe step</strong><small>Runs while this panel is open. It never navigates or submits.</small></span>
+        </label>
       </section>
 
       <section id="no-run" class="card empty-card">
@@ -50,7 +56,7 @@
       <div id="primary-actions" class="actions" hidden>
         <button id="open-application">Open prepared application</button>
         <button id="bind" class="secondary" hidden>Bind this employer form</button>
-        <button id="fill">Fill this step</button>
+        <button id="fill">Fill safe fields now</button>
         <button id="attach" class="secondary" hidden>Attach selected resume</button>
         <button id="inspect" class="secondary">Check step</button>
       </div>
@@ -61,7 +67,7 @@
         <p>Use this only after a blocked posting renders in the browser. Complete any CAPTCHA yourself first.</p>
       </details>
 
-      <div class="safety-note"><strong>ClearLead reuses only what you confirmed.</strong><span>Exact recognized yes/no answers can be filled from your local profile. New or ambiguous legal questions, demographics, salary, and final Submit remain yours.</span></div>
+      <div class="safety-note"><strong>ClearLead reuses only what you confirmed.</strong><span>Recognized answers and your relative start preference can fill automatically. New or ambiguous legal questions, demographics, salary, navigation, and final Submit remain yours.</span></div>
       <button id="forget" class="text-button">Forget browser pairing</button>
     </section>
 
