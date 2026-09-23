@@ -152,3 +152,28 @@ test("natural not-needed credential language does not become a hard gate", () =>
     assert.equal(result.counts.missing, 0, description);
   }
 });
+
+test("contrast connectors do not require punctuation to preserve hard gates", () => {
+  for (const connector of ["but", "while", "whereas", "yet", "however"]) {
+    const result = analyzeQualifications({ description: `A+ is optional ${connector} Network+ is required.` }, { text: "IT support" });
+    assert.equal(result.items.some((item) => item.code === "cert-a"), false, connector);
+    assert.equal(result.items.find((item) => item.code === "cert-network")?.status, "missing", connector);
+  }
+});
+
+test("candidate-has tenure, clause-scoped degrees, and year-leading marketing stay distinct", () => {
+  const candidateTenure = analyzeQualifications({ description: "The ideal candidate has 5+ years of IT support experience." }, { text: "Support Associate\n2025 - Present" }, { now: new Date("2026-09-22T00:00:00Z") });
+  assert.equal(candidateTenure.items.find((item) => item.code === "experience-years")?.status, "missing");
+
+  for (const description of ["Bachelor's degree is not required, but a high school diploma is required.", "Bachelor's degree preferred, but high school diploma required."]) {
+    const result = analyzeQualifications({ description }, { text: "Support Associate" });
+    const education = result.items.find((item) => item.code === "education");
+    assert.equal(education?.label, "high school diploma", description);
+    assert.equal(education?.importance, "required", description);
+    assert.equal(education?.status, "missing", description);
+  }
+
+  const marketing = analyzeQualifications({ description: "25 years of IT support experience powers Acme customer service." }, { text: "IT support" });
+  assert.equal(marketing.items.some((item) => item.code === "experience-years"), false);
+  assert.equal(marketing.counts.missing, 0);
+});

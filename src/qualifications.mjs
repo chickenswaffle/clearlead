@@ -10,7 +10,7 @@ const EXPERIENCE_PATTERNS = [
 const DATE_RANGE = /\b(?:(\d{1,2})[/-])?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*(?:(?:(\d{1,2})[/-])?((?:19|20)\d{2})|(present|current))\b/gi;
 const DEGREES = [
   { level: 3, name: "bachelor's degree", job: /\bbachelor(?:'s|’s|s)?\s+degree\b/i, candidate: /\bbachelor(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)?\b|\bb\.?[as]\.?\b/i },
-  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)?\b|\ba\.?[as]\.?\b/i },
+  { level: 2, name: "associate degree", job: /\bassociate(?:'s|’s|s)?\s+degree\b/i, candidate: /\bassociate(?:'s|’s|s)?(?:\s+degree|\s+of|\s+in)\b|\ba\.?[as]\.?\b/i },
   { level: 1, name: "high school diploma", job: /\b(?:high school diploma|ged)\b/i, candidate: /\b(?:high school diploma|ged)\b/i },
 ];
 const CERTIFICATIONS = ["A+", "Network+", "Security+", "ITIL", "CCNA", "MCSA", "MCP", "CompTIA"];
@@ -38,19 +38,26 @@ export function analyzeQualifications(job = {}, resume = {}, { now = new Date(),
     }));
   }
 
-  const degree = DEGREES.find((item) => item.job.test(jobText));
-  if (degree) {
-    const postingEvidence = sentenceFor(jobText, degree.job);
-    if (!shouldIgnoreRequirement(postingEvidence)) {
-      const candidateDegree = DEGREES.find((item) => item.level >= degree.level && item.candidate.test(candidateText));
-      const equivalentAllowed = /\bor equivalent(?:\s+(?:combination|experience|education))?\b/i.test(postingEvidence || jobText);
-      items.push(requirement({
-        code: "education", label: degree.name, importance: importanceOf(postingEvidence, "required", jobText),
-        status: candidateDegree ? "met" : equivalentAllowed ? "uncertain" : "missing", postingEvidence,
-        candidateEvidence: candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) : "No matching degree line found.",
-        explanation: candidateDegree ? "Matching education evidence appears in the saved resume." : equivalentAllowed ? "The posting allows an equivalent path; confirm the resume makes that equivalency obvious." : "No matching degree evidence was found.",
-      }));
-    }
+  const degreeRequirements = clauses(jobText).flatMap((postingEvidence) => {
+    if (shouldIgnoreRequirement(postingEvidence)) return [];
+    const degree = DEGREES.filter((item) => item.job.test(postingEvidence)).sort((left, right) => right.level - left.level)[0];
+    if (!degree) return [];
+    return [{ degree, postingEvidence, importance: importanceOf(postingEvidence, "required", jobText) }];
+  });
+  const degreeRequirement = degreeRequirements
+    .filter((item) => item.importance === "required")
+    .sort((left, right) => right.degree.level - left.degree.level)[0]
+    || degreeRequirements.sort((left, right) => right.degree.level - left.degree.level)[0];
+  if (degreeRequirement) {
+    const { degree, postingEvidence, importance } = degreeRequirement;
+    const candidateDegree = DEGREES.find((item) => item.level >= degree.level && item.candidate.test(candidateText));
+    const equivalentAllowed = /\bor equivalent(?:\s+(?:combination|experience|education))?\b/i.test(postingEvidence);
+    items.push(requirement({
+      code: "education", label: degree.name, importance,
+      status: candidateDegree ? "met" : equivalentAllowed ? "uncertain" : "missing", postingEvidence,
+      candidateEvidence: candidateDegree ? evidenceLine(resumeText, candidateDegree.candidate) : "No matching degree line found.",
+      explanation: candidateDegree ? "Matching education evidence appears in the saved resume." : equivalentAllowed ? "The posting allows an equivalent path; confirm the resume makes that equivalency obvious." : "No matching degree evidence was found.",
+    }));
   }
 
   for (const certification of mentionedCertifications(jobText)) {
@@ -158,11 +165,11 @@ function maximumExperience(value) {
     if (organizationHistoryStatement(evidence)) continue;
     const section = sectionImportanceOf(evidence, value);
     for (const { pattern, contextual } of EXPERIENCE_PATTERNS) {
-      if (contextual && !experienceRequirementContext(evidence, section)) continue;
       pattern.lastIndex = 0;
       for (const match of evidence.matchAll(pattern)) {
         const rawYears = match.groups?.years || "";
         const years = Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0;
+        if (contextual && !experienceRequirementContext(evidence, section, years)) continue;
         if (years > result.years) result = { years, evidence };
       }
     }
@@ -219,20 +226,21 @@ function shouldIgnoreRequirement(evidence) {
   const explicitlyPreferred = /\bnot\s+(?:strictly\s+)?required\b[^.!?;]{0,50}\b(?:but\s+)?preferred\b/i.test(text);
   return negated && !explicitlyPreferred;
 }
-function experienceRequirementContext(evidence, section) {
+function experienceRequirementContext(evidence, section, years) {
+  const text = normalize(evidence);
   return Boolean(section)
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
-    || new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(normalize(evidence))
-    || /^experience\s*:/i.test(normalize(evidence));
+    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && (text.match(/[a-z0-9+#./'-]+/gi) || []).length <= 10)
+    || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
-  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|have|bring)\b/i.test(evidence)) return false;
+  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
   return String(value || "")
     .replace(/^\s*(?:although|though)\s+/i, "")
-    .split(/\s*,\s*(?=(?:(?:but|however|while|whereas|yet)\b)|[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
+    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
     .map((clause) => clause.replace(/^\s*(?:but|however|while|whereas|yet)\s*,?\s*/i, "").trim())
     .filter(Boolean);
 }

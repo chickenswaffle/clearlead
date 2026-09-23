@@ -181,3 +181,26 @@ test("named-company history and not-needed credentials remain actionable", () =>
     assert.notEqual(match.decision.code, "skip", description);
   }
 });
+
+test("no-comma certification and clause-scoped education requirements force a skip", () => {
+  for (const description of ["A+ is optional but Network+ is required.", "Bachelor's degree is not required, but a high school diploma is required."]) {
+    const match = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/8", postedAt: "2026-09-21T00:00:00Z", description }, {
+      resume: { text: "IT Support Associate\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+      query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+    });
+    assert.equal(match.qualifications.counts.missing, 1, description);
+    assert.equal(match.decision.code, "skip", description);
+  }
+});
+
+test("candidate-has tenure is enforced while year-leading marketing remains actionable", () => {
+  const options = {
+    resume: { text: "IT Support Associate\n2025 - Present", skills: ["windows"], keywords: ["it", "support"] },
+    query: "IT support specialist", location: "Dallas", now: new Date("2026-09-22T00:00:00Z"),
+  };
+  const required = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/9", postedAt: "2026-09-21T00:00:00Z", description: "The ideal candidate has 5+ years of IT support experience." }, options);
+  const marketing = rankJob({ title: "IT Support Specialist", company: "Acme", location: "Dallas", url: "https://jobs.lever.co/acme/10", postedAt: "2026-09-21T00:00:00Z", description: "25 years of IT support experience powers Acme customer service." }, options);
+  assert.equal(required.decision.code, "skip");
+  assert.equal(marketing.qualifications.counts.missing, 0);
+  assert.notEqual(marketing.decision.code, "skip");
+});

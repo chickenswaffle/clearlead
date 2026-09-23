@@ -133,11 +133,12 @@ function maximumExperienceRequirement(value) {
     if (postingRequirementIsNegated(clause) || organizationHistoryStatement(clause)) continue;
     const section = qualificationSectionFor(clause, value);
     for (const { pattern, contextual } of EXPERIENCE_REQUIREMENTS) {
-      if (contextual && !experienceRequirementContext(clause, section)) continue;
       pattern.lastIndex = 0;
       for (const match of clause.matchAll(pattern)) {
         const rawYears = match.groups?.years || "";
-        maximum = Math.max(maximum, Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0);
+        const years = Number(rawYears) || YEAR_WORDS[String(rawYears).toLowerCase()] || 0;
+        if (contextual && !experienceRequirementContext(clause, section, years)) continue;
+        maximum = Math.max(maximum, years);
       }
     }
   }
@@ -172,20 +173,21 @@ function qualificationSectionFor(evidence, context) {
   }
   return "";
 }
-function experienceRequirementContext(evidence, section) {
+function experienceRequirementContext(evidence, section, years) {
+  const text = clean(evidence);
   return Boolean(section)
     || /\b(?:required|requires?|minimum|must|need(?:ed)?|candidates?|applicants?|you(?:'ll| will)? (?:have|bring))\b/i.test(evidence)
-    || new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(clean(evidence))
-    || /^experience\s*:/i.test(clean(evidence));
+    || (years <= 15 && new RegExp(`^${YEAR_VALUE}\\s*\\+?\\s*(?:years?|yrs?)`, "i").test(text) && (text.match(/[a-z0-9+#./'-]+/gi) || []).length <= 10)
+    || /^experience\s*:/i.test(text);
 }
 function organizationHistoryStatement(evidence) {
-  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|have|bring)\b/i.test(evidence)) return false;
+  if (/\b(?:candidates?|applicants?|you|employees?)\b/i.test(evidence) && /\b(?:requires?|must|need(?:ed)?|has|have|bring)\b/i.test(evidence)) return false;
   return /\b(?:has|have|brings?|offers?|provides?|boasts?)\s+(?:over\s+|more\s+than\s+)?(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:years?|yrs?)\b/i.test(evidence);
 }
 function splitRequirementClauses(value) {
   return String(value || "")
     .replace(/^\s*(?:although|though)\s+/i, "")
-    .split(/\s*,\s*(?=(?:(?:but|however|while|whereas|yet)\b)|[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
+    .split(/\s*(?:,\s*)?\b(?:but|however|while|whereas|yet)\b\s*,?\s*|\s*,\s*(?=[^,]{0,120}\b(?:required|requires?|must|minimum|optional|preferred|needed|necessary)\b)/i)
     .map((clause) => clause.replace(/^\s*(?:but|however|while|whereas|yet)\s*,?\s*/i, "").trim())
     .filter(Boolean);
 }

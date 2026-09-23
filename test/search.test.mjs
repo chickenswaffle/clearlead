@@ -195,3 +195,20 @@ test("search handles contrast clauses, qualification headings, and natural optio
   assert.equal(result.funnel.fitSkipped, 4);
   assert.ok(result.allJobs.filter((job) => job.match.decision.code === "skip").every((job) => job.match.qualifications.counts.missing > 0));
 });
+
+test("search enforces no-comma, candidate-has, and lower-degree gates without hiding marketing tenure", async () => {
+  const jobs = [
+    { title: "IT Support Specialist", company: "No Comma Corp", location: "Dallas", url: "https://jobs.lever.co/no-comma/1", postedAt: "2026-09-21T00:00:00Z", description: "A+ is optional but Network+ is required." },
+    { title: "IT Support Specialist", company: "Ideal Corp", location: "Dallas", url: "https://jobs.lever.co/ideal/2", postedAt: "2026-09-21T00:00:00Z", description: "The ideal candidate has 5+ years of IT support experience." },
+    { title: "IT Support Specialist", company: "Diploma Corp", location: "Dallas", url: "https://jobs.lever.co/diploma/3", postedAt: "2026-09-21T00:00:00Z", description: "Bachelor's degree is not required, but a high school diploma is required." },
+    { title: "IT Support Specialist", company: "Marketing Corp", location: "Dallas", url: "https://jobs.lever.co/marketing/4", postedAt: "2026-09-21T00:00:00Z", description: "25 years of IT support experience powers Acme customer service." },
+  ];
+  const result = await searchPublishedRoles({ boards: ["example"], query: "IT Support Specialist", location: "Dallas" }, {
+    discoverFn: async () => ({ error: null, jobs }),
+    resume: { text: "IT Support Associate\n2025 - Present\nSupported Windows users", skills: ["windows"], keywords: ["it", "support", "users"] },
+    now: () => new Date("2026-09-22T00:00:00Z"),
+  });
+  assert.deepEqual(result.jobs.map((job) => job.company), ["Marketing Corp"]);
+  assert.equal(result.funnel.fitSkipped, 3);
+  assert.equal(result.allJobs.find((job) => job.company === "Marketing Corp")?.match.qualifications.counts.missing, 0);
+});
