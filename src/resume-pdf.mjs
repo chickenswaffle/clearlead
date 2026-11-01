@@ -38,7 +38,7 @@ export function createResumePdf(markdown, { title = "Tailored resume", author = 
     }
 
     renderResume(document, source);
-    addPageNumbers(document);
+    addPageNumbers(document, cleanText(author));
     document.end();
   });
 }
@@ -84,6 +84,14 @@ function renderResume(document, source) {
         document.strokeColor("#15a46d").lineWidth(2).moveTo(PAGE.left, document.y).lineTo(558, document.y).stroke();
         document.moveDown(0.48);
         renderedName = true;
+      } else if (level === 3) {
+        // Role headings ("Title — Employer | Dates") read as part of the
+        // section, not as another section banner.
+        ensureSpace(document, 34);
+        document.moveDown(0.2);
+        document.fontSize(9.4).fillColor("#101820");
+        writeUnicodeText(document, text, true, { lineGap: 0.8 });
+        document.moveDown(0.12);
       } else {
         ensureSpace(document, 42);
         document.moveDown(0.14);
@@ -105,6 +113,9 @@ function renderResume(document, source) {
         width: 489,
         lineGap: 0.75,
       }, PAGE.left + 15, y);
+      // Positioned text moves the cursor's x; restore the margin so later
+      // headings and paragraphs are not indented to the bullet column.
+      document.x = PAGE.left;
       document.moveDown(0.06);
       return;
     }
@@ -120,14 +131,15 @@ function ensureSpace(document, points) {
   if (document.y + points > document.page.height - PAGE.bottom - 14) document.addPage();
 }
 
-function addPageNumbers(document) {
+function addPageNumbers(document, author = "") {
   const range = document.bufferedPageRange();
   for (let index = range.start; index < range.start + range.count; index += 1) {
     document.switchToPage(index);
     const bottomMargin = document.page.margins.bottom;
     document.page.margins.bottom = 0;
     document.font(fontName("latin", false)).fontSize(7.5).fillColor("#81918a")
-      .text(`CLEARLEAD  /  ${index + 1} OF ${range.count}`, PAGE.left, 760, { width: 504, align: "right", lineBreak: false, characterSpacing: 0.65 });
+      // Employers see this footer, so it names the candidate, never ClearLead.
+      .text(`${author ? `${author}  ·  ` : ""}${index + 1} of ${range.count}`, PAGE.left, 760, { width: 504, align: "right", lineBreak: false, characterSpacing: 0.3 });
     document.page.margins.bottom = bottomMargin;
   }
 }
@@ -136,7 +148,10 @@ function cleanText(value) {
   return String(value || "")
     .normalize("NFC")
     .replace(/\u2022/g, " | ")
-    .replace(/[\u2010-\u2015]/g, "-")
+    // Dashes become ASCII for ATS parsers, but an unspaced em dash between
+    // words ("sites—maintaining") keeps its spacing instead of fusing them.
+    .replace(/\s*[\u2014\u2015]\s*/g, " - ")
+    .replace(/[\u2010-\u2013]/g, "-")
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/\u2026/g, "...")

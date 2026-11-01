@@ -80,3 +80,29 @@ test("long resume PDFs keep real content on the final page", async () => {
   const text = content.items.map((item) => item.str).join(" ");
   assert.match(text, /Evidence line 90/);
 });
+
+test("employer-facing PDF keeps the margin after bullets, spaces em dashes, and carries no ClearLead branding", async () => {
+  const source = `# Taylor Example
+
+taylor@example.com | Dallas, TX
+
+## Experience
+
+### Support Lead — Acme, Dallas, TX | 01/2022 – Present
+- Led 24/7 support across 100+ sites—maintaining 99% uptime.
+
+## Skills
+
+Windows · Networking`;
+  const pdf = await createResumePdf(source, { title: "Resume", author: "Taylor Example" });
+  const document = await getDocument({ data: new Uint8Array(pdf), disableWorker: true, useSystemFonts: true }).promise;
+  const content = await (await document.getPage(1)).getTextContent();
+  const items = content.items.filter((item) => item.str.trim());
+  const text = items.map((item) => item.str).join(" ");
+  assert.match(text, /sites - maintaining/);
+  assert.doesNotMatch(text, /clearlead/i, "the footer employers see must not advertise the tool");
+  assert.match(text, /Taylor Example\s+·\s+1 of 1/);
+  const x = (needle) => items.find((item) => item.str.includes(needle)).transform[4];
+  assert.ok(Math.abs(x("SKILLS") - x("EXPERIENCE")) < 1, "a section after a bullet list starts at the margin");
+  assert.ok(Math.abs(x("Support Lead") - x("EXPERIENCE")) < 1, "role headings start at the margin");
+});
