@@ -1,4 +1,5 @@
 const DEFAULT_MAX_AGE_DAYS = 60;
+const EMPLOYER_LISTING_SOURCES = new Set(["phenom", "workday", "icims"]);
 
 const SECTORS = {
   healthcare: ["hospital", "healthcare", "health care", "medical center", "medical clinic", "health clinic", "pharmacy", "patient care"],
@@ -55,8 +56,17 @@ export function evaluateJobEligibility(job = {}, {
   const warnings = [];
   const checks = [];
   const ageDays = daysOld(job.postedAt, now);
+  // Jobs read from the employer's own careers site are open right now by
+  // definition, so age alone is a warning there; a passed deadline is not.
+  const listedByEmployer = EMPLOYER_LISTING_SOURCES.has(String(job.source || ""));
+  const closesAt = Date.parse(job.closesAt || "");
 
-  if (ageDays !== null && ageDays > maxAgeDays) {
+  if (Number.isFinite(closesAt) && closesAt < new Date(now).getTime() - 86_400_000) {
+    reject(reasons, checks, "application-closed", `The employer's application deadline (${new Date(closesAt).toISOString().slice(0, 10)}) has passed.`);
+  } else if (ageDays !== null && ageDays > maxAgeDays && listedByEmployer) {
+    warnings.push({ code: "long-running-posting", reason: `Posted ${Math.floor(ageDays)} days ago but still listed on the employer's careers site; it may be a standing or hard-to-fill opening.` });
+    checks.push({ code: "posting-age", passed: null });
+  } else if (ageDays !== null && ageDays > maxAgeDays) {
     reject(reasons, checks, "stale-posting", `Posted ${Math.floor(ageDays)} days ago, beyond the ${maxAgeDays}-day application window.`);
   } else if (ageDays === null) {
     warnings.push({ code: "unknown-posting-age", reason: "The source did not provide a reliable posting date; verify recency before applying." });
@@ -84,7 +94,7 @@ export function evaluateJobEligibility(job = {}, {
 
   const requiredSectors = unique([
     ...(plan.requiredSectors || []),
-    ...requiredSectorsFromProfile(profile),
+    ...(plan.ignoreProfileSectors ? [] : requiredSectorsFromProfile(profile)),
   ]).filter((sector) => SECTORS[sector]);
   const matchedSectors = requiredSectors.filter((sector) => SECTORS[sector].some((phrase) => phrasePresent(sectorEvidenceText, phrase)));
   if (requiredSectors.length && !matchedSectors.length) {

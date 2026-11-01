@@ -37,6 +37,21 @@ test("uses Workday's public job API when its apply button is client-rendered", a
   assert.equal(requested[1].accept, "application/json");
 });
 
+test("Workday apply links are verified against the posting they apply to", async () => {
+  const requested = [];
+  const fetchFn = async (url) => {
+    requested.push(String(url));
+    if (String(url).includes("/wday/cxs/")) {
+      return new Response(JSON.stringify({ jobPostingInfo: { jobPostingId: "Executive-Assistant_JR102116", canApply: true, posted: true, jobDescription: "Support the executive team with calendars, travel, and board materials." } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("<html><body><div id='root'></div></body></html>", { status: 200 });
+  };
+  const result = await verifyPosting("https://dfwairport.wd5.myworkdayjobs.com/External/job/Airport-Headquarters/Executive-Assistant_JR102116/apply/autofillWithResume", { fetchFn, lookupFn: publicLookup, now: clock });
+  assert.equal(result.status, "live");
+  assert.equal(result.verificationMethod, "workday public job API");
+  assert.match(requested[1], /\/wday\/cxs\/dfwairport\/External\/job\/Airport-Headquarters\/Executive-Assistant_JR102116$/);
+});
+
 test("does not trust mismatched or non-applicable Workday API data", async () => {
   const pageUrl = "https://acme.wd1.myworkdayjobs.com/jobs/job/Dallas/Support-Tech_R7";
   for (const posting of [

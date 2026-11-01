@@ -145,7 +145,11 @@ function workdayApiUrl(url) {
   const jobIndex = parts.findIndex((part) => part.toLowerCase() === "job");
   if (jobIndex < 1 || jobIndex === parts.length - 1) return null;
   const site = parts[jobIndex - 1];
-  const jobPath = parts.slice(jobIndex + 1);
+  // Apply links (".../job/<location>/<posting>/apply[/autofillWithResume]")
+  // name the same posting as the job page; the API only knows the job page path.
+  const rawJobPath = parts.slice(jobIndex + 1);
+  const applyAt = rawJobPath.findIndex((part, index) => index > 0 && part.toLowerCase() === "apply");
+  const jobPath = applyAt > 0 ? rawJobPath.slice(0, applyAt) : rawJobPath;
   const encoded = ["wday", "cxs", hostMatch[1], site, "job", ...jobPath].map(encodeURIComponent).join("/");
   return new URL(`/${encoded}`, url.origin);
 }

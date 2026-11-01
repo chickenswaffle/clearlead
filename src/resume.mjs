@@ -89,14 +89,28 @@ function containsPhrase(text, phrase) {
   return variants.some((variant) => text.includes(variant));
 }
 
+const HISTORY_TITLE_NOUN = /\b(?:manager|lead|supervisor|director|coordinator|assistant|associate|specialist|technician|analyst|administrator|engineer|agent|representative|officer|consultant|clerk|operator|dispatcher|instructor|trainer|developer)\b/i;
+const MONTH = "(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?";
+const DATE_POINT = `(?:\\d{1,2}\\/\\d{4}|${MONTH}\\s+\\d{4}|\\d{4})`;
+const DATE_RANGE = new RegExp(`${DATE_POINT}\\s*(?:-|–|—|to)\\s*(?:present|current|now|${DATE_POINT})`, "i");
+
 function extractRoleHints(text) {
   const hints = [];
+  const add = (value) => {
+    const clean = value.replace(/\s+/g, " ").trim();
+    if (clean && hints.length < 8 && !hints.some((item) => item.toLowerCase() === clean.toLowerCase())) hints.push(clean);
+  };
   const rolePattern = /\b(?:senior|staff|principal|lead|head|director|vp|vice president|chief)?\s*(?:software|data|machine learning|ml|ai|product|platform|backend|frontend|full[- ]stack|security|cloud|devops|site reliability|solutions?)\s+(?:engineer|engineering|architect|manager|designer|scientist|analyst|developer|consultant)\b/gi;
-  for (const match of text.matchAll(rolePattern)) {
-    const value = match[0].replace(/\s+/g, " ").trim();
-    if (!hints.some((item) => item.toLowerCase() === value.toLowerCase())) hints.push(value);
-    if (hints.length === 8) break;
-  }
+  for (const match of text.matchAll(rolePattern)) add(match[0]);
+  // Work-history headings: a short title line followed closely by a date range
+  // ("Customer Support Lead" / "Contoso Water Co. • Denton, TX" / "05/2018 - 04/2021").
+  const lines = text.split("\n").map((line) => line.trim());
+  lines.forEach((line, index) => {
+    if (line.length < 4 || line.length > 70 || /^[•*·-]/.test(line) || /[.:;]$/.test(line) || line.split(/\s+/).length > 8) return;
+    if (!HISTORY_TITLE_NOUN.test(line)) return;
+    const nearby = [line, ...lines.slice(index + 1, index + 3)].join(" ");
+    if (DATE_RANGE.test(nearby)) add(line.replace(DATE_RANGE, "").replace(/[\s|•,–-]+$/, ""));
+  });
   return hints;
 }
 

@@ -35,18 +35,24 @@ test("broad feed fixtures normalize Remotive and Arbeitnow", async () => {
   assert.equal(arbeitnow.queryMode, "full-feed-local-filtered");
 });
 
-test("public job ledger fans out expanded terms and normalizes employer-direct descriptions", async () => {
+test("job ledger fans out at most two keyed queries and normalizes employer-direct descriptions", async () => {
   const urls = [];
+  const headers = [];
   const ledger = await discoverJobLedger({
-    plan: { ledgerQueries: ["help desk", "technical support"], filters: { country: "US", state: "TX" } },
-    fetchFn: async (url) => {
+    apiKey: "ledger-key",
+    plan: { ledgerQueries: ["help desk", "technical support", "desktop support"], filters: { country: "US", state: "TX" } },
+    fetchFn: async (url, init) => {
       urls.push(String(url));
+      headers.push(init.headers.authorization);
       return response({ data: [{ title: "Technical Support Specialist", company: "Hospital One", location: "Dallas", apply_url: "https://example.org/apply/1", source: "workday", posted_at: "2026-08-20T00:00:00Z", description: "Support hospital computers and users." }] });
     },
   });
-  assert.equal(urls.length, 2);
+  assert.equal(urls.length, 2, "the free tier allows 1,000 records a month, so a search spends at most two queries");
+  assert.match(urls[0], /^https:\/\/api\.jobopportunitiesapi\.org\/v1\/jobs\?/);
+  assert.match(urls[0], /limit=25/);
   assert.match(urls[0], /country=US/);
-  assert.match(urls[0], /state=TX/);
+  assert.match(urls[0], /q=help\+desk\+Texas/);
+  assert.deepEqual(headers, ["Bearer ledger-key", "Bearer ledger-key"]);
   assert.equal(ledger.jobs.length, 1, "duplicate listings from query fan-out are removed");
   assert.equal(ledger.jobs[0].description, "Support hospital computers and users.");
   assert.equal(ledger.jobs[0].board, "workday");
@@ -64,9 +70,18 @@ test("source failures stay explicit and successful feeds are cached", async () =
   assert.deepEqual(failed.jobs, []);
 });
 
+test("job ledger without a key explains how to get one and makes no request", async () => {
+  let calls = 0;
+  const ledger = await discoverJobLedger({ plan: { ledgerQueries: ["help desk"] }, fetchFn: async () => { calls += 1; return response({ data: [] }); } });
+  assert.equal(calls, 0);
+  assert.deepEqual(ledger.jobs, []);
+  assert.match(ledger.error, /requires a free API key/);
+  assert.match(ledger.error, /jobopportunitiesapi\.org\/register/);
+});
+
 test("public job ledger cache is isolated by the generated search plan", async () => {
   let calls = 0;
-  const discover = createSourceDiscovery({ fetchFn: async () => { calls += 1; return response({ data: [] }); }, now: () => 1000 });
+  const discover = createSourceDiscovery({ fetchFn: async () => { calls += 1; return response({ data: [] }); }, now: () => 1000, jobLedgerKey: () => "ledger-key" });
   await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["help desk"], filters: { state: "TX" } } });
   await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["help desk"], filters: { state: "TX" } } });
   await discover({ type: "jobledger", token: "employer-direct" }, { plan: { ledgerQueries: ["data analyst"], filters: { state: "TX" } } });

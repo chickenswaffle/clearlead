@@ -21,6 +21,8 @@ export function createStore(dataDir) {
   const extensionPairingPath = path.join(dataDir, "extension-pairing.json");
   const applicationRunsPath = path.join(dataDir, "application-runs.json");
   const applicationOutcomesPath = path.join(dataDir, "application-outcomes.json");
+  const employerSitesPath = path.join(dataDir, "employer-sites.json");
+  const sourceKeysPath = path.join(dataDir, "source-keys.json");
 
   function read(file, fallback) {
     try {
@@ -97,6 +99,10 @@ export function createStore(dataDir) {
     },
     extensionPairing: () => read(extensionPairingPath, null),
     saveExtensionPairing(pairing) { write(extensionPairingPath, pairing); return pairing; },
+    employerSiteCache() { const value = read(employerSitesPath, {}); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; },
+    saveEmployerSiteCache(value) { write(employerSitesPath, value); return value; },
+    sourceKey(name) { const value = read(sourceKeysPath, {}); return typeof value?.[name] === "string" ? value[name] : ""; },
+    saveSourceKey(name, key) { const value = read(sourceKeysPath, {}); write(sourceKeysPath, { ...(value && typeof value === "object" ? value : {}), [name]: String(key || "").trim() }); },
     clearExtensionPairing() { write(extensionPairingPath, null); return null; },
     applicationRuns() {
       return read(applicationRunsPath, []).map(publicApplicationRun);

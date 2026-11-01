@@ -359,10 +359,11 @@ function renderSearch(data) {
   searchSummary.textContent = data.outage
     ? 'Every configured source failed. No posting status was inferred.'
     : `${data.total} actionable roles · ${data.funnel?.discovered ?? '—'} discovered · ${data.funnel?.titleMismatch ?? 0} outside target roles · ${data.funnel?.locationMismatch ?? 0} outside target area · ${data.rejectedCount || 0} hard-rejected · ${data.funnel?.fitSkipped ?? 0} weak/unsupported fits hidden · ${data.funnel?.duplicatesRemoved ?? 0} duplicates removed · ${data.checkedCount || 0} checked · ${data.verifiedCount || 0} verified live`;
-  const sourceMode = (mode) => ({'query-aligned':'query-aligned','supplemental-unfiltered':'supplemental/unfiltered','full-feed-local-filtered':'full feed/local filter','employer-board-local-filtered':'employer board/local filter'}[mode] || 'coverage mode unknown');
+  const sourceMode = (mode) => ({'query-aligned':'query-aligned','supplemental-unfiltered':'supplemental/unfiltered','full-feed-local-filtered':'full feed/local filter','employer-board-local-filtered':'employer board/local filter','employer-site-full':'employer careers site'}[mode] || 'coverage mode unknown');
   const activeSources = data.sources.map((source) => `<span class="source-chip ${source.ok ? 'ok' : 'fail'}">${escape(source.name)} · ${source.ok ? `${source.count} published · ${escape(sourceMode(source.queryMode))}${source.cached ? ' · cached' : ''}${source.note ? ` · ${escape(source.note)}` : ''}` : escape(source.error)}</span>`).join('');
   const gatedSources = (data.providerAccess || []).filter((provider) => provider.status === 'partner-required').map((provider) => `<span class="source-chip gate">${escape(provider.name)} · partner access needed</span>`).join('');
-  sourceHealth.innerHTML = activeSources + gatedSources;
+  const manualSources = (data.manualEmployers || []).filter((item) => /^https:\/\//.test(item.url || '')).map((item) => `<a class="source-chip gate" href="${escape(item.url)}" target="_blank" rel="noopener noreferrer" title="${escape(item.reason || '')}">${escape(item.name)} · open their site ↗</a>`).join('');
+  sourceHealth.innerHTML = activeSources + gatedSources + manualSources;
   searchResults.innerHTML = data.outage
     ? '<div class="empty-state"><strong>All job sources are unavailable.</strong><p>Nothing was called published or live. Retry later or inspect source errors above.</p><button class="button ghost" id="retry-outage">Retry sources</button></div>'
     : data.jobs.length
@@ -406,7 +407,7 @@ function jobCard(job) {
   return `<article class="job-card ${job.isNew ? 'new' : ''} ${status === 'live' ? 'verified' : ''} ${status === 'closed' ? 'closed' : ''}" data-job-url="${escape(job.applyUrl || job.url)}">
     <div class="job-top"><span class="company">${escape(job.company)} · ${escape(job.source)}</span><div class="badges">${job.isNew ? '<span class="badge new">new</span>' : ''}${decision ? `<span class="badge decision-${escape(decision.code)}">${escape(decision.label)}</span>` : ''}${application ? `<span class="badge path-${escape(application.kind)}">${escape(application.label)}</span>` : ''}<span class="badge verification-badge ${escape(status)}">${escape(badge)}</span></div></div>
     <h3>${escape(job.title)}</h3>
-    <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
+    <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}${job.salary ? ` · ${escape(job.salary)}` : ''}${job.closesAt ? ` · closes ${escape(new Date(job.closesAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}))}` : ''}</div>
     <div class="score-row"><strong>${score}</strong><span>strategic match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · apply ${breakdown.application ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
     ${outcomeLearning ? `<p class="learning-nudge">${escape(outcomeLearning.explanation)} Evidence: ${escape(outcomeLearning.evidence.join(', '))}</p>` : ''}

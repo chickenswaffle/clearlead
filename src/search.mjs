@@ -1,5 +1,6 @@
 import { rankJob, dedupeJobs } from "./ranking.mjs";
 import { DEFAULT_SOURCE_CONFIG } from "./sources.mjs";
+import { EMPLOYER_SITE_TYPES, employerSiteId, normalizeEmployerSite } from "./employer-sites.mjs";
 
 export const DEFAULT_SOURCES = DEFAULT_SOURCE_CONFIG.greenhouseBoards.map((board) => ({ board, name: humanize(board) }));
 const REFRESH_OPTIONS = new Set([2, 5, 15, 30]);
@@ -24,8 +25,9 @@ export function normalizeSearchConfig(input = {}) {
   };
 }
 
-export function sourceSpecs(config) {
+export function sourceSpecs(config, plan = null) {
   return [
+    ...employerSpecs(plan),
     ...config.greenhouseBoards.map((token) => ({ type: "greenhouse", token, name: humanize(token) })),
     ...config.leverSites.map((token) => ({ type: "lever", token, name: humanize(token) })),
     ...config.ashbyBoards.map((token) => ({ type: "ashby", token, name: humanize(token) })),
@@ -47,7 +49,7 @@ export async function searchPublishedRoles(input, {
 } = {}) {
   const config = normalizeSearchConfig(input);
   const specs = discoverSourceFn
-    ? sourceSpecs(config)
+    ? sourceSpecs(config, input.plan)
     : config.greenhouseBoards.map((token) => ({ type: "greenhouse", token, name: humanize(token) }));
   if (!discoverSourceFn && typeof discoverFn !== "function") throw new Error("A discovery adapter is required.");
   const outcomes = await Promise.all(specs.map(async (spec) => {
@@ -64,6 +66,8 @@ export async function searchPublishedRoles(input, {
       type: spec.type,
       board: spec.token,
       name: spec.name,
+      employer: Boolean(spec.employer),
+      careersUrl: spec.site?.careersUrl || "",
       ok: !result.error,
       cached: Boolean(result.cached),
       queryMode: result.queryMode || defaultQueryMode(spec.type),
@@ -86,11 +90,16 @@ export async function searchPublishedRoles(input, {
     eligibleBeforeDedupe: 0,
     duplicatesRemoved: 0,
   };
+  const openTitles = input.plan?.titleMode === "open";
   for (const source of outcomes) {
     for (const job of source.jobs) {
       if (!job.url) { funnel.missingUrl += 1; continue; }
       const titleTerms = new Set(words(job.title));
-      if (queryGroups.length > 0) {
+      if (openTitles) {
+        // Open searches take every title from the targeted employers; broad
+        // feeds must still show the job belongs to the requested topic.
+        if (!source.employer && !smartTitleMatches(job.title, input.plan) && !topicMatches(job, input.plan.topicTerms)) { funnel.titleMismatch += 1; continue; }
+      } else if (queryGroups.length > 0) {
         const titleMatches = input.plan
           ? smartTitleMatches(job.title, input.plan)
           : queryGroups.some((group) => group.every((term) => titleTerms.has(term)));
@@ -99,7 +108,9 @@ export async function searchPublishedRoles(input, {
       const locationText = new Set(words(job.location));
       const remoteAllowed = input.plan?.remote && /\bremote\b/i.test(String(job.location) + " " + String(job.workplaceType));
       const locationMatches = locationGroups.some((group) => group.every((term) => locationText.has(term)));
-      const hardLocationFilter = !input.plan || input.plan.locationRequired === true;
+      // Employer career sites list every location they hire in, so their jobs
+      // must actually be in the requested area.
+      const hardLocationFilter = !input.plan || input.plan.locationRequired === true || source.employer;
       if (locationGroups.length > 0 && hardLocationFilter && !remoteAllowed && !locationMatches) { funnel.locationMismatch += 1; continue; }
       const normalized = {
         ...job,
@@ -128,7 +139,9 @@ export async function searchPublishedRoles(input, {
   });
   funnel.eligibleBeforeDedupe = candidates.length;
   funnel.duplicatesRemoved = candidates.length - matchedJobs.length;
-  const actionableJobs = matchedJobs.filter((job) => job.match?.decision?.code !== "skip");
+  // An open employer search shows every eligible opening (low fit is labeled,
+  // not hidden); role searches keep hiding low-fit matches.
+  const actionableJobs = openTitles ? matchedJobs : matchedJobs.filter((job) => job.match?.decision?.code !== "skip");
   funnel.fitSkipped = matchedJobs.length - actionableJobs.length;
   const jobs = actionableJobs.slice(0, 150);
   const outage = outcomes.length > 0 && outcomes.every((source) => !source.ok);
@@ -143,6 +156,7 @@ export async function searchPublishedRoles(input, {
     funnel,
     outage,
     sources: outcomes.map(({ jobs: sourceJobs, ...source }) => ({ ...source, count: sourceJobs.length })),
+    manualEmployers: Array.isArray(input.plan?.manualEmployers) ? input.plan.manualEmployers : [],
     providerAccess: providerAccess(config),
     searchedAt: now().toISOString(),
   };
@@ -172,7 +186,30 @@ function providerAccess(config) {
     { id: "glassdoor", name: "Glassdoor", status: "partner-required", detail: "Official API access is restricted to approved integrations" },
   ];
 }
+function employerSpecs(plan) {
+  const seen = new Set();
+  return (Array.isArray(plan?.employerSites) ? plan.employerSites : []).flatMap((value) => {
+    if (["greenhouse", "lever", "ashby"].includes(value?.type) && /^[a-z0-9_-]{2,80}$/.test(value.token || "")) {
+      if (seen.has(`${value.type}:${value.token}`)) return [];
+      seen.add(`${value.type}:${value.token}`);
+      return [{ type: value.type, token: value.token, name: String(value.name || humanize(value.token)).slice(0, 120), employer: true }];
+    }
+    const site = normalizeEmployerSite(value);
+    if (!site) return [];
+    const token = employerSiteId(site);
+    if (seen.has(token)) return [];
+    seen.add(token);
+    return [{ type: site.type, token, name: site.name, site, employer: true }];
+  });
+}
+function topicMatches(job, topicTerms) {
+  const terms = Array.isArray(topicTerms) ? topicTerms : [];
+  if (!terms.length) return false;
+  const text = `${job.title} ${job.company} ${job.category || ""} ${String(job.description || "").slice(0, 3_000)}`.toLowerCase();
+  return terms.some((term) => new RegExp(`\\b${String(term).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?\\b`).test(text));
+}
 function defaultQueryMode(type) {
+  if (EMPLOYER_SITE_TYPES.includes(type)) return "employer-site-full";
   if (type === "jobledger") return "query-aligned";
   if (["remotive", "arbeitnow"].includes(type)) return "full-feed-local-filtered";
   if (["greenhouse", "lever", "ashby"].includes(type)) return "employer-board-local-filtered";

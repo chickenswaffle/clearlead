@@ -1,7 +1,11 @@
 import { discoverGreenhouse } from "./greenhouse.mjs";
+import { EMPLOYER_SITE_TYPES, discoverEmployerSite, employerSiteId } from "./employer-sites.mjs";
 
 const TOKEN_RE = /^[a-z0-9_-]{2,80}$/i;
-const CACHE_TTL = { greenhouse: 10 * 60_000, lever: 10 * 60_000, ashby: 10 * 60_000, jobledger: 5 * 60_000, ziprecruiter: 15 * 60_000, remotive: 6 * 60 * 60_000, arbeitnow: 60 * 60_000 };
+// Employer career sites are read in full (with one detail request per job), so
+// they refresh far less often than the cheap feeds. The keyed job index has a
+// small monthly record allowance, so it refreshes slowest of all.
+const CACHE_TTL = { greenhouse: 10 * 60_000, lever: 10 * 60_000, ashby: 10 * 60_000, jobledger: 6 * 60 * 60_000, ziprecruiter: 15 * 60_000, remotive: 6 * 60 * 60_000, arbeitnow: 60 * 60_000, phenom: 30 * 60_000, workday: 30 * 60_000, icims: 30 * 60_000 };
 
 export const DEFAULT_SOURCE_CONFIG = {
   greenhouseBoards: [],
@@ -10,13 +14,15 @@ export const DEFAULT_SOURCE_CONFIG = {
   broadFeeds: ["jobledger", "ziprecruiter", "remotive"],
 };
 
-export function createSourceDiscovery({ fetchFn = fetch, now = () => Date.now() } = {}) {
+export function createSourceDiscovery({ fetchFn = fetch, now = () => Date.now(), jobLedgerKey = () => process.env.JOBLEDGER_API_KEY || "" } = {}) {
   const cache = new Map();
   return async function discover(source, options = {}) {
     const planKey = source.type === "jobledger"
       ? `:${JSON.stringify({ queries: options.plan?.ledgerQueries || [], filters: options.plan?.filters || {} })}`
       : "";
-    const key = `${source.type}:${source.token || source.type}${planKey}`;
+    const key = EMPLOYER_SITE_TYPES.includes(source.type) && source.site
+      ? `${source.type}:${employerSiteId(source.site)}`
+      : `${source.type}:${source.token || source.type}${planKey}`;
     const cached = cache.get(key);
     const ttl = CACHE_TTL[source.type] || 10 * 60_000;
     if (cached && now() - cached.at < ttl) return { ...cached.value, cached: true };
@@ -24,7 +30,8 @@ export function createSourceDiscovery({ fetchFn = fetch, now = () => Date.now() 
     if (source.type === "greenhouse") value = await discoverGreenhouse(source.token, { ...options, fetchFn });
     else if (source.type === "lever") value = await discoverLever(source.token, { ...options, fetchFn });
     else if (source.type === "ashby") value = await discoverAshby(source.token, { ...options, fetchFn });
-    else if (source.type === "jobledger") value = await discoverJobLedger({ ...options, fetchFn });
+    else if (source.type === "jobledger") value = await discoverJobLedger({ ...options, fetchFn, apiKey: jobLedgerKey() });
+    else if (EMPLOYER_SITE_TYPES.includes(source.type) && source.site) value = await discoverEmployerSite(source.site, { ...options, fetchFn });
     else if (source.type === "ziprecruiter") value = await discoverZipRecruiter({ ...options, fetchFn });
     else if (source.type === "remotive") value = await discoverRemotive({ ...options, fetchFn });
     else if (source.type === "arbeitnow") value = await discoverArbeitnow({ ...options, fetchFn });
@@ -70,15 +77,17 @@ export async function discoverZipRecruiter(options = {}) {
 }
 
 export async function discoverJobLedger(options = {}) {
-  const { fetchFn = fetch, timeoutMs = 20_000, plan = {} } = options;
-  const queries = (Array.isArray(plan.ledgerQueries) ? plan.ledgerQueries : []).map((value) => text(value).slice(0, 80)).filter(Boolean).slice(0, 5);
+  const { fetchFn = fetch, timeoutMs = 20_000, plan = {}, apiKey = "" } = options;
+  // Since late 2026 job rows require a key (free tier: 1,000 records a month),
+  // so each search spends at most 2 queries x 25 records of that allowance.
+  if (!apiKey) return { source: "jobledger", board: "employer-direct", jobs: [], error: "The employer-direct index now requires a free API key (jobopportunitiesapi.org/register). Set JOBLEDGER_API_KEY, or rely on the employer career sites." };
+  const queries = (Array.isArray(plan.ledgerQueries) ? plan.ledgerQueries : []).map((value) => text(value).slice(0, 80)).filter(Boolean).slice(0, 2);
   const searches = queries.length ? queries : [""];
   const outcomes = await Promise.all(searches.map(async (query) => {
-    const params = new URLSearchParams({ limit: "50", include_description: "true" });
-    if (query) params.set("q", query);
+    const params = new URLSearchParams({ limit: "25", include_description: "true" });
+    if (query) params.set("q", [query, plan.filters?.state === "TX" ? "Texas" : ""].filter(Boolean).join(" "));
     if (/^[A-Z]{2}$/i.test(plan.filters?.country || "")) params.set("country", String(plan.filters.country).toUpperCase());
-    if (/^[A-Z]{2}$/i.test(plan.filters?.state || "")) params.set("state", String(plan.filters.state).toUpperCase());
-    return fetchJson(`https://api.jobopportunitiesapi.org/public/jobs?${params}`, { fetchFn, timeoutMs, type: "jobledger" });
+    return fetchJson(`https://api.jobopportunitiesapi.org/v1/jobs?${params}`, { fetchFn, timeoutMs, type: "jobledger", headers: { authorization: `Bearer ${apiKey}` } });
   }));
   const failures = outcomes.filter((item) => item.error);
   const rows = outcomes.flatMap((item) => Array.isArray(item.payload?.data) ? item.payload.data : []);
@@ -182,11 +191,11 @@ async function fetchJobs({ type, board, endpoint, options, map, queryMode = "" }
   }
 }
 
-async function fetchJson(endpoint, { fetchFn, timeoutMs, type }) {
+async function fetchJson(endpoint, { fetchFn, timeoutMs, type, headers = {} }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchFn(endpoint, { headers: { accept: "application/json", "user-agent": "ClearLead/0.2 (+local job discovery)" }, signal: controller.signal });
+    const response = await fetchFn(endpoint, { headers: { accept: "application/json", "user-agent": "ClearLead/0.2 (+local job discovery)", ...headers }, signal: controller.signal });
     if (!response.ok) return { payload: null, error: `${humanize(type)} returned HTTP ${response.status}.` };
     return { payload: await response.json(), error: null };
   } catch (error) {

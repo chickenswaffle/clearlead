@@ -13,15 +13,22 @@ export function rankJob(job, { resume = {}, profile = {}, applicationProfile = {
   const resumeTerms = new Set([...(resume.keywords || []), ...(resume.skills || []).flatMap(terms)]);
   const matchedSkills = (resume.skills || []).filter((skill) => phrasePresent(`${job.title} ${job.description}`, skill));
   const matchedKeywords = [...resumeTerms].filter((term) => jobTerms.has(term)).slice(0, 18);
-  const targetPhrases = [
-    ...(Array.isArray(plan.titles) ? plan.titles : []),
-    ...String(query).split(","),
-    ...(profile.targetRoles || []),
-    ...(resume.roleHints || []),
-  ].map((value) => String(value).trim()).filter(Boolean);
-  const titleScore = targetPhrases.length
-    ? titleAlignment(job.title, targetPhrases)
-    : ratio(matchedKeywords.filter((term) => titleTerms.includes(term)).length, Math.min(titleTerms.length, 5));
+  const openTitles = plan.titleMode === "open";
+  const targetPhrases = (openTitles
+    ? [...(Array.isArray(plan.titles) ? plan.titles : []), ...(resume.roleHints || [])]
+    : [
+      ...(Array.isArray(plan.titles) ? plan.titles : []),
+      ...String(query).split(","),
+      ...(profile.targetRoles || []),
+      ...(resume.roleHints || []),
+    ]).map((value) => String(value).trim()).filter(Boolean);
+  // In an open employer search the saved role targets are not the request, so
+  // an unrelated title is neutral rather than a failed match.
+  const titleScore = openTitles
+    ? Math.max(40, targetPhrases.length ? titleAlignment(job.title, targetPhrases) : 0)
+    : targetPhrases.length
+      ? titleAlignment(job.title, targetPhrases)
+      : ratio(matchedKeywords.filter((term) => titleTerms.includes(term)).length, Math.min(titleTerms.length, 5));
   const skillScore = resumeTerms.size ? ratio(matchedKeywords.length + matchedSkills.length, Math.min(resumeTerms.size, 24)) : 0;
   const preferredLocations = [location, ...(profile.locations || [])].flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
   const locationScore = preferredLocations.length === 0
@@ -131,6 +138,7 @@ function sectorAliases(value) {
   if (key === "healthcare") return ["hospital", "healthcare", "medical center", "clinic"];
   if (key === "education") return ["school", "district", "university", "college", "education", "campus"];
   if (key === "public sector") return ["government", "city of", "county", "public sector"];
+  if (key === "aviation") return ["airport", "airline", "aviation", "airfield", "aircraft", "airlines"];
   return [key];
 }
 

@@ -25,7 +25,7 @@ The readiness check names each missing prerequisite and prints its exact repair 
 ## Current workflow
 
 1. Paste a resume or load a PDF, plain-text, or Markdown file. PDF text is extracted in memory and shown for review; the upload is not persisted. Nothing becomes the saved resume until the user confirms **Index resume locally**. The browser state API returns only an extracted summary.
-2. Describe the work you want in one sentence. ClearLead searches the broad employer-direct index, ZipRecruiter's official public connector, and Remotive by default; optional Greenhouse, Lever, Ashby, and Arbeitnow sources remain configurable.
+2. Describe the work you want in one sentence. ClearLead searches the broad employer-direct index, ZipRecruiter's official public connector, and Remotive by default; optional Greenhouse, Lever, Ashby, and Arbeitnow sources remain configurable. When the sentence names a kind of employer or place instead of a role ("any airport job"), ClearLead also reads those employers' own career sites directly — see **Employer career sites** below.
 3. Review source health and ranked matches. Every card distinguishes direct employer applications from job-board handoffs and shows its fit reasons and source-confidence level.
 4. ClearLead normalizes and deduplicates the combined pool, then ranks each role with an explainable title/resume/location/sector/freshness/application-path breakdown.
 5. The highest-ranked 5–20 roles can be verified automatically with at most three checks running concurrently. Discovery alone never labels a role live.
@@ -38,6 +38,15 @@ Indeed and Glassdoor are not scraped or presented as active coverage. Their supp
 10. **Prepare application** creates a reviewable, exact-page safe-fill pack. It never submits an application.
 11. If you already found a role elsewhere, paste its public URL as option B and enter the same verification-to-application flow.
 12. Open **Applied** to review completed applications, add applications completed elsewhere, and record recruiter contact, interviews, offers, rejections, withdrawals, or a dated no-response update. Employer outcomes are separate from application-run status and are stored as an append-only local timeline.
+
+## Employer career sites
+
+Large local employers (airports, airlines, cities, hospitals) often never reach the broad job feeds. ClearLead reads their own career sites through the public search endpoints of the platforms they run on: **Phenom**, **Workday**, and **iCIMS**, plus Greenhouse, Lever, and Ashby boards.
+
+- A request such as "any airport job" opens every title at the matching employers. Saved role targets then only rank results, and saved sector must-haves (for example "hospital or school") do not filter a request that names its own industry.
+- Curated, verified employer lists live in `src/employer-registry.mjs` (currently DFW airport and airline employers). With an AI provider enabled, the planner may suggest more employers; each careers URL is fetched and only searched once its platform is observed. Unsupported or blocked sites are listed as "open their site" links rather than silently dropped.
+- Career-site jobs must be inside the requested area, are cached for 30 minutes, and keep a still-listed opening older than 60 days as a warning instead of rejecting it. A passed application deadline rejects it.
+- The employer-direct index (`jobopportunitiesapi.org`) now requires a free key with 1,000 records a month. Set `JOBLEDGER_API_KEY` or `data/source-keys.json` (`{"jobledger": "..."}`); each search spends at most 50 records and results are cached for six hours.
 
 ## Local outcome memory
 

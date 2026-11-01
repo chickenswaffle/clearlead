@@ -23,6 +23,7 @@ import { browserVerificationFromEvidence } from "./browser-verification.mjs";
 import { candidateTruthSummary } from "./candidate-truth.mjs";
 import { createResumeDocx, docxMimeType } from "./resume-docx.mjs";
 import { applyOutcomeLearning } from "./outcomes.mjs";
+import { detectCareerSite } from "./employer-sites.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedExtensionVersion = JSON.parse(fs.readFileSync(path.join(root, "extension", "manifest.json"), "utf8")).version;
@@ -33,17 +34,54 @@ export function createAppServer({
   discoverSourceFn,
   aiClient = createProviderClient(),
   extractPdfFn = extractResumePdf,
+  detectSiteFn = detectCareerSite,
 } = {}) {
   const store = createStore(dataDir);
   const vault = createCredentialVault(dataDir);
   const greenhouseFn = discoverFn || discoverGreenhouse;
-  const sourceDiscovery = discoverSourceFn || (discoverFn ? null : createSourceDiscovery());
+  const sourceDiscovery = discoverSourceFn || (discoverFn ? null : createSourceDiscovery({ jobLedgerKey: () => process.env.JOBLEDGER_API_KEY || store.sourceKey("jobledger") }));
+  const planCache = new Map();
   const liveVerifications = new Map();
   const discoveredJobs = new Map();
   const aiConsents = new Map();
   const runtime = runtimeReadiness({ rootDir: root });
   let currentAutofillPack = null;
   let latestBrowserVerification = null;
+
+  // The AI planner may name employers it believes hire for the request. None is
+  // searched until its careers site is observed to run on a supported platform;
+  // the rest become explicit "open this site" actions.
+  async function resolveSuggestedEmployers(plan) {
+    const suggestions = Array.isArray(plan.suggestedEmployers) ? plan.suggestedEmployers : [];
+    if (!suggestions.length) return plan;
+    const cache = store.employerSiteCache();
+    const nowMs = Date.now();
+    const results = await Promise.all(suggestions.map(async (item) => {
+      const cached = cache[item.careersUrl];
+      if (cached && nowMs - Date.parse(cached.checkedAt) < 7 * 86_400_000) return { item, result: cached.result };
+      let result;
+      try { result = await detectSiteFn(item.careersUrl, { name: item.name }); }
+      catch { result = { ok: false, reason: "ClearLead could not check this careers site." }; }
+      return { item, result, fresh: true };
+    }));
+    const employerSites = [...(plan.employerSites || [])];
+    const manualEmployers = [...(plan.manualEmployers || [])];
+    const seen = new Set(employerSites.map((site) => site.host || site.token));
+    const updates = {};
+    for (const { item, result, fresh } of results) {
+      if (fresh) updates[item.careersUrl] = { checkedAt: new Date(nowMs).toISOString(), result };
+      const site = result?.ok ? result.site : null;
+      const id = site ? site.host || site.token : "";
+      if (site && !seen.has(id)) {
+        seen.add(id);
+        employerSites.push({ ...site, name: item.name, suggestedBy: "ai" });
+      } else if (!site) {
+        manualEmployers.push({ name: item.name, url: item.careersUrl, reason: result?.reason || "ClearLead cannot search this careers site yet.", suggestedBy: "ai" });
+      }
+    }
+    if (Object.keys(updates).length) store.saveEmployerSiteCache({ ...cache, ...updates });
+    return { ...plan, employerSites, manualEmployers };
+  }
 
   async function executeSearch(requested, plan = null) {
     const resume = store.resume();
@@ -573,11 +611,20 @@ export function createAppServer({
           try { secret = vault.load(); }
           catch { secret = null; }
         }
-        const plan = await createSearchPlan(prompt, {
-          resume: resumeSummary(resume),
-          profile: store.profile(),
-          generateText: secret ? (payload) => aiClient.generate(secret, payload) : undefined,
-        });
+        // Auto-refresh repeats the same request every few minutes; reuse an AI
+        // plan for 30 minutes instead of paying for a new one each time.
+        const planKey = createHash("sha256").update(JSON.stringify([prompt, Boolean(secret), resume.savedAt, store.profile()])).digest("hex");
+        const cachedPlan = planCache.get(planKey);
+        let plan;
+        if (cachedPlan && Date.now() - cachedPlan.at < 30 * 60_000) plan = cachedPlan.plan;
+        else {
+          plan = await resolveSuggestedEmployers(await createSearchPlan(prompt, {
+            resume: resumeSummary(resume),
+            profile: store.profile(),
+            generateText: secret ? (payload) => aiClient.generate(secret, payload) : undefined,
+          }));
+          if (plan.mode === "ai") planCache.set(planKey, { at: Date.now(), plan });
+        }
         const previous = store.searchConfig();
         const advanced = request.advanced && typeof request.advanced === "object" ? request.advanced : {};
         const customSources = Boolean(request.advanced && typeof request.advanced === "object");

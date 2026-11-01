@@ -296,7 +296,7 @@ test("AI provider setup and application kits require consent and keep credential
   const verifyFn = async (url) => ({ status: "live", url, finalUrl: url, httpStatus: 200, reason: "Live job fixture.", checkedAt: "2026-08-26T12:00:00.000Z" });
   const discoverFn = async (board) => ({ source: "greenhouse", board, error: null, jobs: [{
     source: "greenhouse", board, company: "Acme", title: "Platform Engineer", location: "Remote",
-    url: "https://boards.greenhouse.io/acme/jobs/ai-1", description: "Python Kubernetes reliability engineering", postedAt: "2026-08-25T12:00:00.000Z",
+    url: "https://boards.greenhouse.io/acme/jobs/ai-1", description: "Python Kubernetes reliability engineering", postedAt: new Date(Date.now() - 86_400_000).toISOString(),
   }] });
   const aiClient = {
     testConnection: async (secret) => ({ ok: true, provider: secret.provider, model: secret.model, message: "Fixture provider accepted the key. No resume data was sent." }),
