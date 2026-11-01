@@ -161,6 +161,9 @@ Staff platform engineer with ten years building distributed systems and reliable
   assert.equal(pdfDownload.headers.get("content-type"), "application/pdf");
   assert.match(pdfDownload.headers.get("content-disposition"), /Platform-Support-Resume\.pdf/);
   assert.equal(Buffer.from(await pdfDownload.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const pdfView = await fetch(`${base}${draft.pdfUrl}?name=Platform%20Support%20Resume&view=1`);
+  assert.match(pdfView.headers.get("content-disposition"), /^inline;/);
+  assert.equal(pdfView.headers.get("content-type"), "application/pdf");
   const docxDownload = await fetch(`${base}${draft.docxUrl}?name=Platform%20Support%20Resume`);
   assert.equal(docxDownload.status, 200);
   assert.equal(docxDownload.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");

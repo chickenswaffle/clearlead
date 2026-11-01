@@ -22,6 +22,18 @@ test("paired browser capture calls a rendered role live only with complete evide
   assert.equal("fullPageText" in result, false);
 });
 
+test("a rendered ATS application form is sufficient live browser evidence", () => {
+  const result = browserVerificationFromEvidence({
+    pageUrl: "https://jobs.smartrecruiters.com/oneclick-ui/company/Acme/publication/12345678-abcd-4abc-8abc-123456789abc",
+    pageTitle: "Easy apply - Support Technician",
+    httpStatus: 200,
+    atsFamily: "smartrecruiters",
+    signals: ["application form"],
+  }, { job: { source: "jobledger", company: "Acme", title: "Support Technician", url: "https://jobs.smartrecruiters.com/Acme/12345678-abcd-4abc-8abc-123456789abc" }, now });
+  assert.equal(result.status, "live");
+  assert.match(result.reason, /interactive smartrecruiters application form/i);
+});
+
 test("paired browser capture keeps an unsolved challenge blocked and actionable", () => {
   const result = browserVerificationFromEvidence({ pageUrl: "https://jobs.example.com/7", httpStatus: 200, signals: ["access challenge"] }, { now });
   assert.equal(result.status, "blocked");

@@ -30,10 +30,15 @@ This is an execution plan, not a long product rewrite. Each slice must leave the
 - [x] Persistent Application Copilot side panel with step guidance and exact-job scope
 - [x] Explicit selected-resume attachment to unambiguous ATS resume fields
 - [x] Context-aware home journey, collapsed completed setup, and progressive ranked-result disclosure
+- [x] Applied-jobs history with automatic completed-run import and manual past-application capture
+- [x] Append-only employer outcome timeline separated from application-run status
+- [x] Local outcome calibration with decision snapshots, duplicate protection, censored no-response/withdrawal states, and a minimum-evidence gate
+- [x] User-controlled outcome-ranking influence that never overrides eligibility or required qualifications
+- [x] Live extension pairing health, explicit unpair/retest controls, stale-token recovery, and version-aware automatic reloads
 
 ## Current quality gate — 2026-09-22
 
-- [x] Complete regression suite: 227/227 passing
+- [x] Complete regression suite: 238/238 passing
 - [x] Dogfood preflight: runtime, resume, identity, extension pairing, and three configured public sources ready
 - [x] Live non-applying search smoke test: 158 discovered, 13 actionable, 23 hard-rejected, 57 weak/unsupported fits hidden
 - [x] Local app restarted and HTTP-smoked on the reviewed build

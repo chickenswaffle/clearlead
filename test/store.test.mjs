@@ -79,3 +79,39 @@ test("default-resume undo backups are private, capped, and one-time", (context) 
   assert.throws(() => store.restoreResumeBackup(latestUndoId), /no longer available/);
   assert.equal(original.ready, true);
 });
+
+test("applied jobs persist outcomes, reject duplicates, and keep local storage private", (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-outcomes-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.chmodSync(dataDir, 0o755);
+  const store = createStore(dataDir);
+  const first = store.saveManualApplication({ title: "Support Engineer", company: "Acme", url: "https://jobs.example/acme/7", appliedAt: "2026-09-01T12:00:00.000Z" });
+  assert.equal(first.saved, true);
+  const duplicate = store.saveManualApplication({ title: "Support Engineer", company: "Acme", url: "https://jobs.example/acme/7", appliedAt: "2026-09-01T18:00:00.000Z" });
+  assert.equal(duplicate.saved, false);
+  const updated = store.recordApplicationOutcome(first.application.id, { stage: "rejected", stageReached: "application", reason: "unknown", note: "No reason was provided." });
+  assert.equal(updated.currentStage, "rejected");
+  assert.equal(store.applications()[0].events.length, 2);
+  assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.join(dataDir, "application-outcomes.json")).mode & 0o777, 0o600);
+  assert.equal(store.outcomeLearning().mode, "observing");
+});
+
+test("completed application runs enter Applied with the original decision snapshot", (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-completed-outcome-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const store = createStore(dataDir);
+  const pageUrl = "https://boards.greenhouse.io/acme/jobs/7";
+  const run = store.startApplicationRun({
+    id: "11111111-1111-4111-8111-111111111111",
+    job: { title: "Support Engineer", company: "Acme", source: "greenhouse", applicationUrl: pageUrl },
+    allowedPages: [pageUrl],
+    decisionSnapshot: { scorerVersion: "clearlead-ranking/v1", match: { score: 82, rawScore: 82, decision: { code: "apply", label: "priority apply", reason: "Strong fit." }, eligibility: { eligible: true }, qualifications: { counts: { met: 4, missing: 0 } } }, descriptionHash: "a".repeat(64), capturedAt: "2026-09-20T12:00:00.000Z" },
+  });
+  store.recordApplicationRunReport(run.id, { pageUrl, inspection: { phase: "complete", completionSignals: ["application received"] } });
+  const applications = store.applications();
+  assert.equal(applications.length, 1);
+  assert.equal(applications[0].evidence, "employer_completion");
+  assert.equal(applications[0].decisionSnapshot.score, 82);
+  assert.equal(applications[0].events[0].source, "employer_page");
+});

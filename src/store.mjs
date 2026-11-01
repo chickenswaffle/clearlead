@@ -6,6 +6,7 @@ import { normalizeResume } from "./resume.mjs";
 import { normalizeApplicationProfile } from "./application-profile.mjs";
 import { buildCandidateTruth } from "./candidate-truth.mjs";
 import { bindApplicationRunTransition, createApplicationRun, publicApplicationRun, recordApplicationRunReport, resumeApplicationRun } from "./application-run.mjs";
+import { applicationFromRun, buildOutcomeLearning, createManualApplication, normalizeOutcomeState, recordApplicationOutcome } from "./outcomes.mjs";
 
 export function createStore(dataDir) {
   const leadsPath = path.join(dataDir, "leads.json");
@@ -19,6 +20,7 @@ export function createStore(dataDir) {
   const applicationProfilePath = path.join(dataDir, "application-profile.json");
   const extensionPairingPath = path.join(dataDir, "extension-pairing.json");
   const applicationRunsPath = path.join(dataDir, "application-runs.json");
+  const applicationOutcomesPath = path.join(dataDir, "application-outcomes.json");
 
   function read(file, fallback) {
     try {
@@ -30,6 +32,7 @@ export function createStore(dataDir) {
   }
   function write(file, value) {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dataDir, 0o700);
     const lock = `${file}.lock`;
     withFileLock(lock, () => {
       const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -94,8 +97,41 @@ export function createStore(dataDir) {
     },
     extensionPairing: () => read(extensionPairingPath, null),
     saveExtensionPairing(pairing) { write(extensionPairingPath, pairing); return pairing; },
+    clearExtensionPairing() { write(extensionPairingPath, null); return null; },
     applicationRuns() {
       return read(applicationRunsPath, []).map(publicApplicationRun);
+    },
+    applications() {
+      return combinedApplications(read(applicationOutcomesPath, {}), read(applicationRunsPath, []));
+    },
+    outcomeLearning() {
+      const state = normalizeOutcomeState(read(applicationOutcomesPath, {}));
+      return buildOutcomeLearning(combinedApplications(state, read(applicationRunsPath, [])), state.settings);
+    },
+    saveOutcomeSettings(settings = {}) {
+      const state = normalizeOutcomeState(read(applicationOutcomesPath, {}));
+      state.settings.rankingEnabled = settings.rankingEnabled !== false;
+      write(applicationOutcomesPath, state);
+      return buildOutcomeLearning(combinedApplications(state, read(applicationRunsPath, [])), state.settings);
+    },
+    saveManualApplication(input = {}) {
+      const state = normalizeOutcomeState(read(applicationOutcomesPath, {}));
+      const application = createManualApplication(input);
+      const duplicate = combinedApplications(state, read(applicationRunsPath, [])).find((item) => item.fingerprint === application.fingerprint);
+      if (duplicate) return { saved: false, reason: "This application is already in Applied.", application: duplicate };
+      state.applications.unshift(application);
+      write(applicationOutcomesPath, state);
+      return { saved: true, application };
+    },
+    recordApplicationOutcome(id, input = {}) {
+      const state = normalizeOutcomeState(read(applicationOutcomesPath, {}));
+      const applications = combinedApplications(state, read(applicationRunsPath, []));
+      const application = applications.find((item) => item.id === id);
+      if (!application) throw new Error("That applied job is unavailable.");
+      const updated = recordApplicationOutcome(application, input);
+      state.applications = [updated, ...state.applications.filter((item) => item.id !== id)];
+      write(applicationOutcomesPath, state);
+      return updated;
     },
     applicationRun(id) {
       if (!/^[a-f0-9-]{36}$/i.test(String(id || ""))) return null;
@@ -104,7 +140,7 @@ export function createStore(dataDir) {
     startApplicationRun(pack) {
       const runs = read(applicationRunsPath, []);
       const run = createApplicationRun(pack);
-      write(applicationRunsPath, [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 250));
+      write(applicationRunsPath, [run, ...runs.filter((item) => item.id !== run.id)]);
       return publicApplicationRun(run);
     },
     recordApplicationRunReport(id, report) {
@@ -113,6 +149,14 @@ export function createStore(dataDir) {
       if (index < 0) throw new Error("That application run is unavailable. Prepare the job again.");
       runs[index] = recordApplicationRunReport(runs[index], report);
       write(applicationRunsPath, runs);
+      if (runs[index].status === "complete") {
+        const state = normalizeOutcomeState(read(applicationOutcomesPath, {}));
+        const application = applicationFromRun(runs[index]);
+        if (application && !state.applications.some((item) => item.id === application.id || item.fingerprint === application.fingerprint)) {
+          state.applications.unshift(application);
+          write(applicationOutcomesPath, state);
+        }
+      }
       return publicApplicationRun(runs[index]);
     },
     resumeApplicationRun(id, pack) {
@@ -239,6 +283,21 @@ export function createStore(dataDir) {
       return { saved: true, lead: saved };
     },
   };
+}
+
+function combinedApplications(stateValue, runs) {
+  const state = normalizeOutcomeState(stateValue);
+  const explicit = [...state.applications];
+  const fingerprints = new Set(explicit.map((item) => item.fingerprint));
+  const ids = new Set(explicit.map((item) => item.id));
+  for (const run of runs || []) {
+    const application = applicationFromRun(run);
+    if (!application || ids.has(application.id) || fingerprints.has(application.fingerprint)) continue;
+    explicit.push(application);
+    ids.add(application.id);
+    fingerprints.add(application.fingerprint);
+  }
+  return explicit.sort((left, right) => String(right.appliedAt).localeCompare(String(left.appliedAt)));
 }
 
 function pruneResumeBackups(directory, keep) {

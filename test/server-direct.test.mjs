@@ -18,6 +18,7 @@ test("application copilot pairs by hash and serves only verified-job-bound packs
   const home = await direct(server, "GET", "/", null);
   assert.equal(home.headers["x-content-type-options"], "nosniff");
   assert.equal(home.headers["x-frame-options"], "DENY");
+  assert.equal(home.headers["cache-control"], "no-store");
   assert.match(home.headers["content-security-policy"], /frame-ancestors 'none'/);
   await direct(server, "POST", "/api/resume", { text: resume, filename: "resume.md" });
   const search = await direct(server, "POST", "/api/search", { boards: ["acme"], query: "platform", autoVerify: true, verifyLimit: 5 });
@@ -47,8 +48,42 @@ test("application copilot pairs by hash and serves only verified-job-bound packs
   assert.equal(pack.body.job.finalUrl, "https://boards.greenhouse.io/acme/apply?job=1");
   const wrongExtension = await direct(server, "GET", "/api/extension/session", null, { origin: "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", authorization: `Bearer ${pairing.body.token}` });
   assert.equal(wrongExtension.status, 401);
+  assert.equal(wrongExtension.body.code, "extension_origin_mismatch");
   const denied = await direct(server, "GET", "/api/extension/pack", null, { origin, authorization: `Bearer ${pairing.body.token}` });
   assert.equal(denied.status, 401);
+});
+
+test("extension pairing distinguishes token creation, live health, version drift, and revocation", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-pair-health-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({ dataDir });
+  const created = await direct(server, "POST", "/api/extension/pair", {});
+  assert.equal(created.body.expectedVersion, "1.0.3");
+  const waiting = await direct(server, "GET", "/api/extension/status", null);
+  assert.equal(waiting.body.pairing.state, "waiting");
+  assert.equal(waiting.body.pairing.paired, false);
+  const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const legacyHealth = await direct(server, "GET", "/api/extension/health", null, { authorization: `Bearer ${created.body.token}`, "x-clearlead-extension-version": "1.0.0" });
+  assert.equal(legacyHealth.status, 200, "Chrome extension requests without an Origin header retain a token-authenticated local fallback");
+  assert.equal(legacyHealth.body.extension.updateRequired, true);
+  const health = await direct(server, "GET", "/api/extension/health", null, { authorization: `Bearer ${created.body.token}`, "x-clearlead-extension-id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x-clearlead-extension-version": "1.0.3" });
+  assert.equal(health.status, 200);
+  assert.equal(health.body.extension.updateRequired, false);
+  const connected = await direct(server, "GET", "/api/extension/status", null);
+  assert.equal(connected.body.pairing.state, "connected");
+  assert.equal(connected.body.pairing.receivedVersion, "1.0.3");
+  const revoked = await direct(server, "POST", "/api/extension/unpair", {});
+  assert.equal(revoked.body.pairing.state, "unpaired");
+  const staleToken = await direct(server, "GET", "/api/extension/health", null, { origin, authorization: `Bearer ${created.body.token}`, "x-clearlead-extension-version": "1.0.0" });
+  assert.equal(staleToken.status, 401);
+  assert.equal(staleToken.body.code, "pairing_revoked");
+
+  const replacement = await direct(server, "POST", "/api/extension/pair", {});
+  const superseded = await direct(server, "GET", "/api/extension/health", null, { origin, authorization: `Bearer ${created.body.token}`, "x-clearlead-extension-version": "1.0.0" });
+  assert.equal(superseded.status, 401);
+  assert.equal(superseded.body.code, "pairing_token_mismatch");
+  assert.match(superseded.body.error, /newest token/i);
+  assert.ok(replacement.body.token);
 });
 
 test("smart search expands one prompt, passes the plan to broad sources, and returns descriptions", async (context) => {
@@ -296,6 +331,70 @@ test("a paired extension can hand complete browser evidence back to the local ap
   }, { origin, authorization: `Bearer ${pairing.body.token}` });
   assert.equal(blocked.body.status, "blocked");
   assert.equal(blocked.body.verificationId, undefined);
+});
+
+test("SmartRecruiters browser handoff matches a redirected application UUID by company and title", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-smartrecruiters-redirect-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({
+    dataDir,
+    discoverFn: async () => ({
+      source: "smartrecruiters",
+      board: "smartrecruiters",
+      error: null,
+      jobs: [{
+        source: "smartrecruiters",
+        board: "smartrecruiters",
+        company: "Resultant",
+        title: "Technical Support Specialist / Service Delivery Technician (Arlington, TX)",
+        location: "Arlington, TX",
+        url: "https://jobs.smartrecruiters.com/Resultant/744000146228440-technical-support-specialist-service-delivery-technician-arlington-tx-",
+        description: "Technical support, service delivery, Windows, networking, and customer service.",
+      }],
+    }),
+  });
+  await direct(server, "POST", "/api/resume", { text: "Experienced technical support professional troubleshooting Windows computers, networks, software, users, tickets, customer issues, documentation, systems, hardware, and service requests. Delivers reliable customer service, device setup, account maintenance, technical training, incident ownership, and clear resolution notes across busy production environments while coordinating escalations, maintaining service levels, and improving repeatable support processes.", filename: "resume.md" });
+  const search = await direct(server, "POST", "/api/search", { boards: ["smartrecruiters"], query: "technical support", autoVerify: false });
+  assert.equal(search.body.jobs.length, 1);
+  const pairing = await direct(server, "POST", "/api/extension/pair", {});
+  const origin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const live = await direct(server, "POST", "/api/extension/verify", {
+    pageUrl: "https://jobs.smartrecruiters.com/oneclick-ui/company/Resultant/publication/0dbc02a8-0231-458e-91ab-2fbbc58166a8?dcr_ci=Resultant",
+    pageTitle: "Easy apply - Technical Support Specialist / Service Delivery Technician (Arlington, TX) - Resultant",
+    httpStatus: 200,
+    atsFamily: "smartrecruiters",
+    signals: ["apply action", "application form"],
+  }, { origin, authorization: `Bearer ${pairing.body.token}` });
+  assert.equal(live.body.status, "live");
+  assert.equal(live.body.trustedJobMetadata, true);
+  assert.equal(live.body.title, "Technical Support Specialist / Service Delivery Technician (Arlington, TX)");
+  assert.equal(live.body.company, "Resultant");
+});
+
+test("Applied API records local history, outcomes, and learning controls", async (context) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "clearlead-applied-api-"));
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = createAppServer({ dataDir });
+  const created = await direct(server, "POST", "/api/applications", {
+    title: "Support Engineer", company: "Acme", url: "https://jobs.example/acme/7", appliedAt: "2026-09-01T12:00:00.000Z",
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.saved, true);
+  assert.equal(created.body.learning.mode, "observing");
+  const id = created.body.application.id;
+  const rejected = await direct(server, "POST", `/api/applications/${id}/outcome`, {
+    stage: "rejected", stageReached: "application", reason: "unknown", note: "Generic rejection; no reason stated.",
+  });
+  assert.equal(rejected.body.application.currentStage, "rejected");
+  assert.equal(rejected.body.application.events.length, 2);
+  const listed = await direct(server, "GET", "/api/applications", null);
+  assert.equal(listed.body.applications[0].currentStage, "rejected");
+  const paused = await direct(server, "POST", "/api/applications/learning", { rankingEnabled: false });
+  assert.equal(paused.body.learning.mode, "paused");
+  const duplicate = await direct(server, "POST", "/api/applications", {
+    title: "Support Engineer", company: "Acme", url: "https://jobs.example/acme/7", appliedAt: "2026-09-01T18:00:00.000Z",
+  });
+  assert.equal(duplicate.body.saved, false);
 });
 
 function direct(server, method, url, payload, extraHeaders = {}) {

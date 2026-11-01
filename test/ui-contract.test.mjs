@@ -51,6 +51,8 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(script, /\/api\/tailored\/\$\{encodeURIComponent\(draft\.id\)\}\/default/);
   assert.match(script, /Read job description/);
   assert.match(html, /id="pair-extension"/);
+  assert.match(html, /id="test-extension"/);
+  assert.match(html, /id="unpair-extension"/);
   assert.match(html, /id="full-name"/);
   assert.match(script, /Save verified lead/);
   assert.match(script, /data-save=/);
@@ -63,9 +65,16 @@ test("resume onboarding leads to one plain-English search and a simple review-re
   assert.match(script, /\/api\/browser-verification/);
   assert.match(script, /\^https:\\\/\\\//);
   assert.match(html, /id="extension-setup"/);
-  assert.match(script, /CAPTCHA handoff/);
+  assert.match(script, /Browser handoff/);
+  assert.match(script, /if the posting renders normally, continue immediately/i);
+  assert.match(script, /Extension connected — browser check ready/);
+  assert.match(script, /Open source in browser/);
+  assert.match(script, /function extensionReady/);
   assert.match(script, /Open for browser check/);
   assert.match(script, /Verify current job page/);
+  assert.match(script, /Connection confirmed live/);
+  assert.match(script, /Replace pairing token/);
+  assert.match(script, /\/api\/extension\/unpair/);
   assert.match(script, /showSearchConfig[\s\S]*smart-search/);
   assert.match(script, /let verifying = false/);
   assert.match(script, /removeAttribute\('data-verify-url'\)/);
@@ -78,4 +87,26 @@ test("unfinished application runs expose an actionable restart-safe resume path"
   assert.match(script, /showRecoverableApplication/);
   assert.match(script, /Revalidate and resume/);
   assert.match(script, /\/api\/application\/runs\/\$\{encodeURIComponent\(runId\)\}\/resume/);
+  assert.match(html, /Prepared — not submitted/);
+  assert.match(html, /id="prepared-applications"/);
+  assert.match(script, /function renderPreparedApplications/);
+  assert.match(script, /No employer confirmation/);
+  assert.match(script, /Continue application/);
+});
+
+test("Applied is a local outcome workflow with explicit guarded learning", () => {
+  assert.match(html, /href="#applied"/);
+  assert.match(html, /id="applications"/);
+  assert.match(html, /id="outcome-learning-toggle"/);
+  assert.match(html, /local-only learning/i);
+  assert.match(script, /function renderApplications/);
+  assert.match(script, /No response as of today/);
+  assert.match(script, /Furthest stage reached/);
+  assert.match(script, /View custom resume/);
+  assert.match(script, /Download PDF/);
+  assert.match(script, /Download DOCX/);
+  assert.match(script, /function applicationResumeActions/);
+  assert.match(html, /One rejection will never rewrite your ranking/);
+  assert.match(script, /escape\(event\.note\)/, "private notes must be rendered as escaped text");
+  assert.match(script, /\/api\/applications\/\$\{encodeURIComponent\(id\)\}\/outcome/);
 });

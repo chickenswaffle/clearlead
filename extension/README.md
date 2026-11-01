@@ -3,7 +3,7 @@
 1. Start ClearLead at `http://127.0.0.1:4173`.
 2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this `extension/` folder.
 3. In ClearLead, save the Application Identity profile and choose **Create pairing token**.
-4. Paste the token into the extension.
+4. Paste the token into the extension. It is saved only after the extension proves a live connection back to ClearLead.
 5. Search and verify a role, choose **Prepare application**, and open the employer form.
 6. Click the ClearLead extension icon. Its side panel stays open beside the application.
 7. Use **Fill this step**. If a resume field is present, choose **Attach selected resume** and review the filename on the employer page.
@@ -13,3 +13,11 @@
 On Workday and SmartRecruiters, repeat **Fill this step** after each employer-controlled Next or Continue step. ClearLead records the step and safely follows only pages tied to the prepared job.
 
 Green outlines were safely filled or attached. Amber fields need review. Red fields are sensitive/legal and remain untouched. The extension never clicks Submit.
+
+## Pairing and updates
+
+- One pairing works across jobs; tokens are not job-specific.
+- ClearLead distinguishes a token that merely exists from a browser connection that is currently live.
+- Use **Retest live connection** in the extension or **Retest connection** in ClearLead to confirm the heartbeat.
+- **Unpair this browser** revokes the server pairing and clears the browser token. Unpairing from ClearLead also causes the extension to discard its invalid token on the next heartbeat.
+- The background worker checks ClearLead once per minute. If the local project expects a newer extension version, it reloads the unpacked extension once automatically. If the folder is missing or still outdated, the side panel exposes a manual reload action instead of looping.

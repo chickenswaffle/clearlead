@@ -1,5 +1,5 @@
 const ALLOWED_SIGNALS = new Set([
-  "apply action", "job description", "responsibilities", "qualifications", "job schema", "access challenge", "closed language",
+  "apply action", "application form", "job description", "responsibilities", "qualifications", "job schema", "access challenge", "closed language",
 ]);
 const ATS_FAMILIES = new Set(["workday", "greenhouse", "lever", "ashby", "smartrecruiters", "generic"]);
 
@@ -29,6 +29,9 @@ export function browserVerificationFromEvidence(input = {}, { job = {}, now = ()
   if (!pageUrl) return { status: "inconclusive", ...base, reason: "Browser capture requires the current public HTTPS job URL. Open the posting, then capture again." };
   if (signals.includes("closed language")) return { status: "closed", ...base, reason: "The rendered posting explicitly says the role is closed or no longer accepting applications." };
   if (signals.includes("access challenge")) return { status: "blocked", ...base, reason: "The browser still shows an access challenge. Complete it manually, wait for the job page, then capture again." };
+  if (httpStatus >= 200 && httpStatus < 300 && signals.includes("application form")) {
+    return { status: "live", ...base, reason: `Browser evidence: rendered HTTP ${httpStatus} and an interactive ${atsFamily} application form.` };
+  }
   const details = signals.filter((signal) => ["job description", "responsibilities", "qualifications", "job schema"].includes(signal));
   if (httpStatus >= 200 && httpStatus < 300 && signals.includes("apply action") && details.length > 0) {
     return { status: "live", ...base, reason: `Browser evidence: rendered HTTP ${httpStatus}, usable apply action, and ${details.join(", ")}.` };

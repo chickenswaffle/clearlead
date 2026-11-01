@@ -15,7 +15,8 @@ const background = fs.readFileSync(path.join(root, "extension", "background.js")
 
 test("extension is scoped to safe fill and contains no submission action", () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "sidePanel", "storage"]);
+  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "sidePanel", "storage"]);
+  assert.equal(manifest.version, "1.0.3");
   assert.equal(manifest.side_panel.default_path, "popup.html");
   assert.equal(manifest.action.default_popup, undefined);
   assert.match(background, /openPanelOnActionClick:\s*true/);
@@ -25,6 +26,11 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.doesNotMatch(content, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
   assert.doesNotMatch(popup, /\.click\s*\(|requestSubmit|\.submit\s*\(/);
   assert.match(content, /EEO|demographic/i);
+  assert.match(content, /application form/);
+  assert.match(content, /CLEARLEAD_AUTO_VERIFY_EVIDENCE/);
+  assert.match(content, /lastAutomaticVerification/);
+  assert.match(popup, /Checking current tab/);
+  assert.match(popup, /scrollIntoView/);
   assert.match(content, /Existing value preserved/);
   assert.match(content, /does not exactly match the verified application page/);
   assert.match(content, /emergency\.\?contact/);
@@ -35,6 +41,20 @@ test("extension is scoped to safe fill and contains no submission action", () =>
   assert.match(popup, /clearleadAutoFill/);
   assert.match(popup, /setInterval\(pollAutomaticFill/);
   assert.match(popup, /Review-only target/);
+  assert.match(popupHtml, /Retest live connection/);
+  assert.match(popup, /x-clearlead-extension-version/);
+  assert.match(popup, /x-clearlead-extension-id/);
+  assert.match(popup, /chrome\.runtime\.reload/);
+  assert.match(background, /clearlead-pairing-health/);
+  assert.match(background, /\/api\/extension\/health/);
+  assert.match(background, /x-clearlead-extension-id/);
+  assert.match(background, /chrome\.runtime\.reload/);
+  assert.match(background, /clearleadPairingError/);
+  assert.match(background, /submitAutomaticVerification/);
+  assert.match(background, /CLEARLEAD_AUTO_VERIFY_EVIDENCE/);
+  assert.match(background, /Unsupported verification page/);
+  assert.match(background, /current\.clearleadToken !== rejectedToken/);
+  assert.match(popup, /current\.clearleadToken === clearleadToken/);
 });
 
 test("ATS registry detects the first supported application families", () => {
@@ -81,6 +101,25 @@ test("Greenhouse reader returns a compact application plan without field values"
   assert.doesNotMatch(JSON.stringify(inspection), /field values|candidate@example/i);
 });
 
+test("completion language inside an active application form is not submission evidence", () => {
+  const context = { URL };
+  vm.runInNewContext(adapters, context);
+  const field = { name: "email", id: "email", type: "email", required: true, disabled: false, value: "", autocomplete: "", getAttribute() { return ""; } };
+  const submit = { textContent: "Submit Application", value: "", getAttribute() { return ""; } };
+  const root = { querySelectorAll(selector) { return selector.startsWith("input:not") ? [field] : selector.startsWith("button") ? [submit] : []; } };
+  const documentRef = {
+    body: { innerText: "After your application has been submitted, you will receive an email." },
+    querySelector(selector) { return selector === "#application_form" ? root : null; },
+    querySelectorAll() { return []; },
+  };
+  const inspection = context.ClearLeadAdapters.inspectPage(documentRef, "https://boards.greenhouse.io/acme/jobs/7");
+  assert.equal(inspection.phase, "application");
+  assert.equal(inspection.submitControlCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(inspection.completionSignals)), ["application submitted"]);
+  assert.match(popup, /inspection\.phase !== "application"/i, "automatic fill must not record a completion page");
+  assert.match(popup, /Confirm application submitted/);
+});
+
 test("Workday and SmartRecruiters readers identify multi-page steps without navigating", () => {
   const context = { URL };
   vm.runInNewContext(adapters, context);
@@ -112,6 +151,9 @@ test("Workday and SmartRecruiters readers identify multi-page steps without navi
   assert.equal(smart.submitControlCount, 1);
   assert.equal(smart.emptyRequiredCount, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(context.ClearLeadAdapters.applicationFields(workdayDocument, "https://acme.wd5.myworkdayjobs.com/en-US/jobs/job/Role/R-12345/apply"))).map((item) => item.name), ["legalNameSection_firstName", "emailAddress"]);
+  const smartOneClick = context.ClearLeadAdapters.inspectPage(smartDocument, "https://jobs.smartrecruiters.com/oneclick-ui/company/Acme/publication/12345678-abcd-4abc-8abc-123456789abc");
+  assert.equal(smartOneClick.phase, "application");
+  assert.equal(smartOneClick.fieldCount, 2);
 });
 
 test("multi-page scope follows only job-bound ATS and generic form transitions", () => {

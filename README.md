@@ -37,6 +37,18 @@ Indeed and Glassdoor are not scraped or presented as active coverage. Their supp
 9. After an explicit confirmation, build an AI application kit for one verified role: tailored resume, fit/skill-gap report, cover-letter draft, interview prep, and a machine-readable claim audit.
 10. **Prepare application** creates a reviewable, exact-page safe-fill pack. It never submits an application.
 11. If you already found a role elsewhere, paste its public URL as option B and enter the same verification-to-application flow.
+12. Open **Applied** to review completed applications, add applications completed elsewhere, and record recruiter contact, interviews, offers, rejections, withdrawals, or a dated no-response update. Employer outcomes are separate from application-run status and are stored as an append-only local timeline.
+
+## Local outcome memory
+
+ClearLead uses confirmed outcomes as a private calibration ledger, not as instant cloud fine-tuning:
+
+- A completed employer flow enters Applied automatically; a saved lead can also be marked **I applied**.
+- Each application keeps its exact resume variant, candidate-truth fingerprint, submission evidence, and original bounded ranking snapshot when available.
+- Generic rejection messages do not create an invented rejection reason. Rejection after an interview counts as evidence that targeting reached an employer, not as a failed job match.
+- Withdrawals and dated no-response updates are excluded from ranking calibration.
+- Ranking influence stays in shadow mode until at least 20 comparable outcomes, five positive stage advances, and two outcome classes exist. Adjustments are capped and never override eligibility or missing-required-qualification gates.
+- Outcome memory can be paused at any time. Application history and calibration are computed locally and are never sent to the configured AI provider.
 
 ## Application Copilot extension
 
@@ -50,6 +62,8 @@ ClearLead includes an unpacked Manifest V3 Chrome extension under `extension/`:
 6. Open the prepared application, click the ClearLead extension icon, and keep its Application Copilot side panel beside the employer form. With **Auto-fill each safe step** enabled, the panel fills recognized profile fields and previously confirmed exact-match answers once per detected ATS step. Explicitly approve **Attach selected resume** when available; ClearLead never navigates or submits.
 
 Browser-assisted verification sends only the current public URL, page title, navigation status, and detected evidence labels to the local server; it does not send page text, cookies, storage, or form contents. The persistent side panel fills only recognized candidate contact/location/public-link fields, never overwrites an existing answer, and only runs on the exact verified HTTPS page (including its job-specific query). It attaches only the selected ClearLead PDF, only after the user chooses **Attach selected resume**, and only to an unambiguous resume field. Pairing expires, binds to one extension installation, and exchanges for a short-lived pack capability. Review-only fields are amber; sensitive, legal, and third-party-contact fields are red and untouched. The extension has no code path that clicks or invokes Submit.
+
+Pairing is health-checked rather than inferred from the existence of a token. ClearLead shows whether a token is waiting, connected live, stale, or revoked; both the app and extension can retest or unpair it. The extension reports its installed version and its background worker checks the local service every minute, clears rejected tokens, and reloads one newly detected unpacked-extension update automatically.
 
 ## AI safety and local credentials
 

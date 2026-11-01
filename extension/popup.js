@@ -1,4 +1,5 @@
 const SERVER = "http://127.0.0.1:4173";
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const pairing = document.querySelector("#pairing");
 const ready = document.querySelector("#ready");
 const result = document.querySelector("#result");
@@ -21,31 +22,60 @@ document.querySelector("#inspect").addEventListener("click", checkApplicationSta
 document.querySelector("#open-application").addEventListener("click", openPreparedApplication);
 document.querySelector("#refresh").addEventListener("click", refreshContext);
 document.querySelector("#forget").addEventListener("click", forgetToken);
+document.querySelector("#test-pairing").addEventListener("click", testPairing);
+document.querySelector("#reload-extension").addEventListener("click", () => chrome.runtime.reload());
 autoFill.addEventListener("change", updateAutoFillPreference);
 
 async function saveToken() {
   const token = document.querySelector("#token").value.trim();
   if (!token) return show("Paste the pairing token from ClearLead.", true);
-  await chrome.storage.local.set({ clearleadToken: token });
-  document.querySelector("#token").value = "";
-  showReady(true);
-  await refreshContext();
+  const button = document.querySelector("#save-token");
+  button.disabled = true;
+  try {
+    const session = await fetchSession(token);
+    await chrome.storage.local.set({ clearleadToken: token, clearleadPairingError: "" });
+    document.querySelector("#token").value = "";
+    showReady(true);
+    renderSession(session);
+    handleExtensionVersion(session.extension);
+    show(`Connection confirmed live with ClearLead · extension v${EXTENSION_VERSION}.`, false, true);
+    await refreshContext();
+  } catch (error) { show(error.message, true); }
+  finally { button.disabled = false; }
 }
 
 async function getSession() {
   const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
   if (!clearleadToken) throw new Error("Pair the extension first.");
-  const response = await fetch(`${SERVER}/api/extension/session`, { headers: { authorization: `Bearer ${clearleadToken}` } });
+  try { return { clearleadToken, session: await fetchSession(clearleadToken) }; }
+  catch (error) {
+    if (error.stalePairing) {
+      const current = await chrome.storage.local.get("clearleadToken");
+      if (current.clearleadToken === clearleadToken) {
+        await chrome.storage.local.remove(["clearleadToken", "clearleadLastReloadVersion"]);
+        showReady(false);
+      }
+    }
+    throw error;
+  }
+}
+
+async function fetchSession(token) {
+  const response = await fetch(`${SERVER}/api/extension/session`, { headers: extensionHeaders(token) });
   const session = await response.json().catch(() => ({}));
-  if (response.status === 401) throw new Error(session.error || "Pairing was rejected.");
+  if (response.status === 401) {
+    const error = new Error(session.error || "Pairing was rejected. Create a replacement token in ClearLead.");
+    error.stalePairing = true;
+    throw error;
+  }
   if (!response.ok) throw new Error(session.error || `ClearLead returned HTTP ${response.status}.`);
   activeSession = session;
-  return { clearleadToken, session };
+  return session;
 }
 
 async function getPreparedPack(session) {
   if (!session?.capability) return null;
-  const response = await fetch(`${SERVER}/api/extension/pack`, { headers: { authorization: `Bearer ${session.capability}` } });
+  const response = await fetch(`${SERVER}/api/extension/pack`, { headers: extensionHeaders(session.capability) });
   const pack = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(pack.error || `ClearLead returned HTTP ${response.status}.`);
   activePack = pack;
@@ -58,6 +88,7 @@ async function refreshContext() {
   try {
     const { session } = await getSession();
     renderSession(session);
+    handleExtensionVersion(session.extension);
     if (!session.packReady) return show("Paired. Prepare a verified job in ClearLead to begin.");
     const pack = await getPreparedPack(session);
     const tab = await activeTab();
@@ -80,7 +111,7 @@ function renderSession(session) {
   noRun.hidden = hasRun;
   pageCard.hidden = !hasRun;
   primaryActions.hidden = !hasRun;
-  document.querySelector("#pair-status").textContent = hasRun ? "paired · application ready" : "paired locally";
+  document.querySelector("#pair-status").textContent = hasRun ? `live · v${EXTENSION_VERSION} · application ready` : `live · v${EXTENSION_VERSION}`;
   if (!hasRun) return;
   document.querySelector("#job-title").textContent = session.job.title || "Prepared application";
   document.querySelector("#job-company").textContent = [session.job.company, session.job.location].filter(Boolean).join(" · ");
@@ -92,6 +123,27 @@ function renderSession(session) {
   setProgress("open");
 }
 
+function handleExtensionVersion(extension = {}) {
+  const reload = document.querySelector("#reload-extension");
+  reload.hidden = !extension.updateRequired;
+  if (extension.updateRequired) {
+    reload.textContent = `Reload update ${extension.expectedVersion || ""}`.trim();
+    show(`ClearLead has extension ${extension.expectedVersion}; this browser has ${EXTENSION_VERSION}. The extension will reload automatically once, or use the update button.`, true);
+  }
+}
+
+async function testPairing() {
+  const button = document.querySelector("#test-pairing");
+  button.disabled = true;
+  try {
+    const { session } = await getSession();
+    renderSession(session);
+    handleExtensionVersion(session.extension);
+    show(`Connection confirmed live now · extension v${EXTENSION_VERSION}.`, false, true);
+  } catch (error) { show(error.message, true); }
+  finally { button.disabled = false; }
+}
+
 function renderPageState(inspection, pack, guidance = "") {
   pageCard.hidden = false;
   const phase = inspection?.phase || "posting";
@@ -100,6 +152,8 @@ function renderPageState(inspection, pack, guidance = "") {
   document.querySelector("#ats-family").textContent = String(inspection?.atsFamily || pack?.navigation?.atsFamily || "ATS").toUpperCase();
   const summary = document.querySelector("#field-summary");
   const attach = document.querySelector("#attach");
+  const fill = document.querySelector("#fill");
+  fill.textContent = phase === "complete" ? "Confirm application submitted" : "Fill safe fields now";
   attach.hidden = !(pack?.resume && Number(inspection?.fileFieldCount) > 0);
   if (inspection?.phase === "application") {
     const remaining = Number(inspection.emptyRequiredCount || 0);
@@ -175,7 +229,7 @@ async function runSafeFill({ session, pack, tab, inspection, automatic }) {
 
 async function maybeAutoFillStep({ session = activeSession, pack = activePack, tab, inspection }) {
   if (!autoFill.checked || autoFillBusy || !session?.capability || !pack?.id || !tab?.id || !inspection) return;
-  if (!["application", "complete"].includes(inspection.phase)) return;
+  if (inspection.phase !== "application") return;
   const signature = `${pack.id}:${tab.id}:${inspection.stepKey || inspection.phase}`;
   if (signature === lastAutoFilledStep) return;
   lastAutoFilledStep = signature;
@@ -265,7 +319,7 @@ async function bindCurrentApplicationPage() {
     if (!window.confirm(`Bind this application page to ${session.job.company} — ${session.job.title}? ClearLead will allow safe-field fill only for this evidenced job flow.`)) throw new Error("Application-page binding was canceled.");
     const response = await fetch(`${SERVER}/api/extension/transition`, {
       method: "POST",
-      headers: { authorization: `Bearer ${clearleadToken}`, "content-type": "application/json" },
+      headers: extensionHeaders(clearleadToken, { "content-type": "application/json" }),
       body: JSON.stringify({ runId: session.runId, pageUrl: tab.url, pageTitle: inspection.pageTitle, identityText: inspection.identityText, referrer: inspection.referrer, inspection, userApproved: true }),
     });
     const data = await response.json().catch(() => ({}));
@@ -279,7 +333,7 @@ async function bindCurrentApplicationPage() {
 async function reportApplicationRun(capability, runId, pageUrl, inspection, fill = null) {
   const response = await fetch(`${SERVER}/api/extension/run`, {
     method: "POST",
-    headers: { authorization: `Bearer ${capability}`, "content-type": "application/json" },
+    headers: extensionHeaders(capability, { "content-type": "application/json" }),
     body: JSON.stringify({ runId, pageUrl, inspection, ...(fill ? { fill } : {}) }),
   });
   const data = await response.json().catch(() => ({}));
@@ -314,6 +368,8 @@ function compensationGuidance(value) {
 async function captureCurrentPage() {
   const button = document.querySelector("#capture");
   button.disabled = true;
+  button.textContent = "Checking current tab…";
+  show("Inspecting the active browser tab…");
   try {
     const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
     if (!clearleadToken) throw new Error("Pair the extension first.");
@@ -324,7 +380,7 @@ async function captureCurrentPage() {
     if (!evidence || evidence.captureError) throw new Error(evidence?.captureError || "Reload the job page and try again.");
     const response = await fetch(`${SERVER}/api/extension/verify`, {
       method: "POST",
-      headers: { authorization: `Bearer ${clearleadToken}`, "content-type": "application/json" },
+      headers: extensionHeaders(clearleadToken, { "content-type": "application/json" }),
       body: JSON.stringify(evidence),
     });
     const verification = await response.json().catch(() => ({}));
@@ -332,14 +388,20 @@ async function captureCurrentPage() {
     const evidenceLine = `${verification.httpStatus ? `HTTP ${verification.httpStatus} · ` : ""}${(verification.signals || []).join(" + ") || "no qualifying signals"}`;
     show(`${String(verification.status || "inconclusive").toUpperCase()} — ${verification.reason} ${evidenceLine}. Return to ClearLead; this evidence will appear there automatically.`, verification.status !== "live", verification.status === "live");
   } catch (error) { show(error.message, true); }
-  finally { button.disabled = false; }
+  finally { button.disabled = false; button.textContent = "Verify current job page"; }
 }
 
 async function activeTab() { return (await chrome.tabs.query({ active: true, currentWindow: true }))[0]; }
 function bytesToBase64(bytes) { let binary = ""; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000)); return btoa(binary); }
 
 async function forgetToken() {
-  await chrome.storage.local.remove("clearleadToken");
+  const { clearleadToken } = await chrome.storage.local.get("clearleadToken");
+  if (clearleadToken) {
+    try {
+      await fetch(`${SERVER}/api/extension/disconnect`, { method: "POST", headers: extensionHeaders(clearleadToken, { "content-type": "application/json" }), body: "{}" });
+    } catch { /* The local token is still removed when ClearLead is offline. */ }
+  }
+  await chrome.storage.local.remove(["clearleadToken", "clearleadPairingHealth", "clearleadPairingError", "clearleadLastReloadVersion"]);
   activeSession = null;
   activePack = null;
   lastAutoFilledStep = "";
@@ -348,12 +410,14 @@ async function forgetToken() {
 }
 
 function showReady(isReady) { pairing.hidden = isReady; ready.hidden = !isReady; }
-function show(message, error = false, success = false) { result.className = `active ${error ? "error" : success ? "success" : ""}`; result.textContent = message; }
+function show(message, error = false, success = false) { result.className = `active ${error ? "error" : success ? "success" : ""}`; result.textContent = message; result.scrollIntoView({ block: "nearest" }); }
+function extensionHeaders(token, extra = {}) { return { authorization: `Bearer ${token}`, "x-clearlead-extension-id": chrome.runtime.id, "x-clearlead-extension-version": EXTENSION_VERSION, ...extra }; }
 
 setInterval(pollAutomaticFill, 2000);
 
-chrome.storage.local.get(["clearleadToken", "clearleadAutoFill"]).then(({ clearleadToken, clearleadAutoFill }) => {
+chrome.storage.local.get(["clearleadToken", "clearleadAutoFill", "clearleadPairingError"]).then(({ clearleadToken, clearleadAutoFill, clearleadPairingError }) => {
   autoFill.checked = clearleadAutoFill !== false;
   showReady(Boolean(clearleadToken));
   if (clearleadToken) refreshContext();
+  else if (clearleadPairingError) show(clearleadPairingError, true);
 });

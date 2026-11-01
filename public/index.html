@@ -25,6 +25,7 @@
       <a class="brand" href="#top" aria-label="ClearLead home"><span class="prompt">&gt;</span> clear<span>lead</span><i></i></a>
       <nav aria-label="Primary navigation">
         <a href="#search">search</a>
+        <a href="#applied">applied</a>
         <a href="#resume">resume</a>
         <a href="#verify-panel">paste URL</a>
         <a href="#profile">settings</a>
@@ -173,7 +174,7 @@
       </div>
       <div class="panel extension-setup" id="extension-setup">
         <div><p class="eyebrow">application copilot</p><h3>A persistent guide beside every application</h3><p>Click the ClearLead extension icon to open its side panel. It stays beside the employer form, fills repeatable fields, attaches the selected resume when you approve it, and guides each ATS step. You handle personal or legal answers and the final Submit click.</p></div>
-        <div class="extension-actions"><span id="extension-status" class="readiness not-ready">Extension not paired.</span><button id="pair-extension" class="button primary">Create pairing token</button></div>
+        <div class="extension-actions"><span id="extension-status" class="readiness not-ready">Extension not paired.</span><div class="extension-button-row"><button id="pair-extension" class="button primary">Create pairing token</button><button id="test-extension" class="button ghost">Retest connection</button><button id="unpair-extension" class="button ghost danger">Unpair</button></div></div>
         <div id="pairing-output" class="pairing-output" aria-live="polite"></div>
       </div>
     </section>
@@ -210,6 +211,48 @@
       <div id="leads" class="queue-list"></div>
       <div id="tailor-output" class="tailor-output" aria-live="polite"></div>
       <div id="autofill-output" class="tailor-output" aria-live="polite"></div>
+    </section>
+
+    <section id="applied" class="section-block applied-section">
+      <div class="section-heading">
+        <div><p class="eyebrow">05 / outcome memory</p><h2>Applied jobs &amp; results</h2></div>
+        <span class="verification-rule">private · local-only learning</span>
+      </div>
+      <div class="applied-summary">
+        <div class="panel outcome-stats" aria-label="Application outcome summary">
+          <div><strong id="applied-total">0</strong><span>applications</span></div>
+          <div><strong id="applied-responses">0</strong><span>responses</span></div>
+          <div><strong id="applied-interviews">0</strong><span>interviews</span></div>
+          <div><strong id="applied-offers">0</strong><span>offers</span></div>
+        </div>
+        <aside class="panel learning-panel">
+          <div><p class="eyebrow">local calibration</p><h3 id="learning-title">Observing outcomes</h3></div>
+          <p id="learning-copy">Mark results to build an evidence base. One rejection will never rewrite your ranking.</p>
+          <div id="learning-signals" class="learning-signals"></div>
+          <label class="toggle"><input id="outcome-learning-toggle" type="checkbox" checked><span></span>Allow outcome memory to adjust future ranks after the evidence gate</label>
+        </aside>
+      </div>
+      <details class="panel add-application">
+        <summary>Add an application completed elsewhere</summary>
+        <div class="manual-application-grid">
+          <div class="field"><label for="past-job-title">Job title</label><input id="past-job-title" autocomplete="off"></div>
+          <div class="field"><label for="past-job-company">Company</label><input id="past-job-company" autocomplete="organization"></div>
+          <div class="field"><label for="past-job-url">Job URL <span>optional</span></label><input id="past-job-url" type="url" autocomplete="url"></div>
+          <div class="field"><label for="past-job-date">Date applied</label><input id="past-job-date" type="date"></div>
+          <div class="field span-2"><label for="past-job-note">Private note <span>optional</span></label><input id="past-job-note" maxlength="1000" placeholder="Do not paste sensitive email contents; record only what you confirmed."></div>
+          <button id="add-past-application" class="button primary" type="button">Add to Applied</button>
+        </div>
+      </details>
+      <div class="application-subsection-heading">
+        <div><p class="eyebrow">waiting on you</p><h3>Prepared — not submitted</h3></div>
+        <span id="prepared-total" class="verification-rule">0 ready for review</span>
+      </div>
+      <p class="prepared-explainer">These employer forms have a tailored resume and saved handoff, but they are not applications yet. No confirmation email should exist until you review the remaining questions and click the employer’s final Submit button.</p>
+      <div id="prepared-applications" class="application-list prepared-application-list" aria-live="polite"></div>
+      <div class="application-subsection-heading applied-history-heading">
+        <div><p class="eyebrow">confirmed history</p><h3>Actually applied</h3></div>
+      </div>
+      <div id="applications" class="application-list" aria-live="polite"></div>
     </section>
   </main>
 

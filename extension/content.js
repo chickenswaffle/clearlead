@@ -22,6 +22,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+let lastAutomaticVerification = "";
+function sendAutomaticVerification() {
+  try {
+    const adapter = globalThis.ClearLeadAdapters?.detect?.(location.href);
+    if (!adapter || adapter.id === "generic") return;
+    const evidence = captureVerificationEvidence();
+    if (!evidence.signals.length) return;
+    const signature = JSON.stringify([evidence.pageUrl, evidence.httpStatus, evidence.atsFamily, evidence.signals]);
+    if (signature === lastAutomaticVerification) return;
+    lastAutomaticVerification = signature;
+    chrome.runtime.sendMessage({ type: "CLEARLEAD_AUTO_VERIFY_EVIDENCE", evidence }).catch(() => {});
+  } catch { /* Manual verification remains available when a page is still rendering. */ }
+}
+if (typeof setTimeout === "function") {
+  setTimeout(sendAutomaticVerification, 800);
+  setTimeout(sendAutomaticVerification, 3500);
+}
+
 function inspectApplicationPage() {
   const pageUrl = new URL(location.href);
   if (pageUrl.protocol !== "https:" || privateHostname(pageUrl.hostname)) throw new Error("Open the public HTTPS application page, then inspect it again.");
@@ -66,6 +84,8 @@ function captureVerificationEvidence() {
   const navigation = globalThis.performance?.getEntriesByType?.("navigation")?.[0];
   const httpStatus = Number(navigation?.responseStatus || 0);
   const ats = globalThis.ClearLeadAdapters?.detect?.(pageUrl.toString()) || { id: "generic" };
+  const inspection = globalThis.ClearLeadAdapters?.inspectPage?.(document, pageUrl.toString());
+  if (inspection?.phase === "application" && Number(inspection.fieldCount) > 0 && Number(inspection.nextControlCount || inspection.submitControlCount) > 0) signals.push("application form");
   return {
     pageUrl: pageUrl.toString(),
     pageTitle: String(document.title || "").trim().slice(0, 180),

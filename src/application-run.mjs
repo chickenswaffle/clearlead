@@ -11,6 +11,7 @@ export function createApplicationRun(pack) {
     job: compactJob(pack.job),
     resume: pack.resume ? compactResume(pack.resume) : null,
     truth: pack.truth ? { schema: String(pack.truth.schema || ""), fingerprint: String(pack.truth.fingerprint || "") } : null,
+    decisionSnapshot: sanitizeDecisionSnapshot(pack.decisionSnapshot),
     allowedPages: [...new Set((pack.allowedPages || []).map(normalizePage).filter(Boolean))],
     navigation: sanitizeNavigation(pack.navigation),
     events: [{ type: "prepared", at: now }],
@@ -48,6 +49,7 @@ export function resumeApplicationRun(run, pack, now = new Date().toISOString()) 
     job: refreshed.job,
     resume: refreshed.resume,
     truth: refreshed.truth,
+    decisionSnapshot: refreshed.decisionSnapshot,
     allowedPages: refreshed.allowedPages,
     navigation: refreshed.navigation,
     events: [...(run.events || []), { type: "resumed", at: now }].slice(-100),
@@ -65,6 +67,7 @@ export function bindApplicationRunTransition(run, pack, evidence = {}, now = new
     job: refreshed.job,
     resume: refreshed.resume,
     truth: refreshed.truth,
+    decisionSnapshot: refreshed.decisionSnapshot,
     allowedPages: refreshed.allowedPages,
     navigation: refreshed.navigation,
     events: [...(run.events || []), {
@@ -115,6 +118,7 @@ export function publicApplicationRun(run) {
     job: run.job,
     resume: run.resume,
     truth: run.truth,
+    decisionSnapshot: run.decisionSnapshot || null,
     lastEvent: run.events?.at(-1) || null,
   };
 }
@@ -184,6 +188,24 @@ function compactResume(resume = {}) {
   return Object.fromEntries(["draftId", "kitId", "filename", "pdfUrl"].filter((key) => resume[key]).map((key) => [key, String(resume[key]).slice(0, 500)]));
 }
 
+function sanitizeDecisionSnapshot(snapshot = {}) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const match = snapshot.match && typeof snapshot.match === "object" ? snapshot.match : {};
+  const eligibility = match.eligibility && typeof match.eligibility === "object" ? match.eligibility : {};
+  const qualifications = match.qualifications && typeof match.qualifications === "object" ? match.qualifications : {};
+  return {
+    scorerVersion: shortText(snapshot.scorerVersion || "clearlead-ranking/v1", 80),
+    score: score(match.score),
+    rawScore: score(match.rawScore),
+    breakdown: Object.fromEntries(Object.entries(match.breakdown || {}).slice(0, 20).map(([key, value]) => [shortToken(key, 40), score(value)])),
+    decision: match.decision ? { code: shortToken(match.decision.code, 40), label: shortText(match.decision.label, 100), reason: shortText(match.decision.reason, 300) } : null,
+    eligibility: { eligible: eligibility.eligible === true, rejections: compactCodes(eligibility.rejections), warnings: compactCodes(eligibility.warnings) },
+    qualifications: { counts: Object.fromEntries(Object.entries(qualifications.counts || {}).slice(0, 10).map(([key, value]) => [shortToken(key, 40), count(value)])) },
+    descriptionHash: /^[a-f0-9]{64}$/i.test(String(snapshot.descriptionHash || "")) ? String(snapshot.descriptionHash).toLowerCase() : "",
+    capturedAt: validDate(snapshot.capturedAt),
+  };
+}
+
 function normalizePage(value) {
   try {
     const page = new URL(String(value || ""));
@@ -197,7 +219,10 @@ function shortToken(value, limit) { return String(value || "").replace(/[^a-z0-9
 function shortText(value, limit) { return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit); }
 function normalizedPath(value) { const path = String(value || "/").replace(/\/{2,}/g, "/"); return path.length > 1 ? path.replace(/\/+$/, "") : "/"; }
 function count(value) { return Math.max(0, Math.min(10_000, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0)); }
+function score(value) { return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0)); }
 function strings(values, limit, length) { return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, length)).filter(Boolean))].slice(0, limit); }
+function compactCodes(values) { return (Array.isArray(values) ? values : []).map((item) => ({ code: shortToken(item?.code || item, 60), reason: shortText(item?.reason || "", 240) })).filter((item) => item.code).slice(0, 30); }
+function validDate(value) { const time = Date.parse(value || ""); return Number.isFinite(time) ? new Date(time).toISOString() : ""; }
 function hostMatches(hostname, suffix) { return hostname === suffix || hostname.endsWith(`.${suffix}`); }
 function navigationTokenMatches(tokens, target) {
   const pathSegments = target.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part).toLowerCase());

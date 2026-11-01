@@ -25,7 +25,7 @@
     const detected = detect(pageUrl);
     const definition = definitions.find((item) => item.id === detected.id);
     const applicationRoot = applicationRootFor(documentRef, definition);
-    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)/i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
+    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)|\/oneclick-ui\//i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
     const fieldRoot = applicationRoot || (applicationPath ? documentRef : null);
     const fields = [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])]
       .filter((field) => !field.disabled);
@@ -36,7 +36,6 @@
       [/\bthank you for applying\b/i, "thank you for applying"],
       [/\bthanks for applying\b/i, "thanks for applying"],
     ].filter(([pattern]) => pattern.test(pageText)).map(([, signal]) => signal);
-    const complete = completionSignals.length > 0;
     const submitControls = [...(fieldRoot?.querySelectorAll("button, input[type='submit']") || [])]
       .filter((control) => /\b(?:submit application|apply|send application)\b/i.test(controlLabel(control)));
     const nextControls = [...(fieldRoot?.querySelectorAll("button, input[type='button'], input[type='submit']") || [])]
@@ -45,6 +44,7 @@
     const fileFields = fields.filter((field) => String(field.type || "").toLowerCase() === "file");
     const requiredFields = fields.filter((field) => field.required || field.getAttribute?.("aria-required") === "true");
     const emptyRequiredFields = requiredFields.filter((field) => !fieldHasAnswer(field));
+    const complete = completionSignals.length > 0 && !applicationRoot && fields.length === 0 && submitControls.length === 0;
     const stepLabel = stepTitle(documentRef, detected.id) || (fields.length ? "Application" : "Posting");
     return {
       atsFamily: detected.id,
@@ -69,7 +69,7 @@
     const detected = detect(pageUrl);
     const definition = definitions.find((item) => item.id === detected.id);
     const root = applicationRootFor(documentRef, definition);
-    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)/i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
+    const applicationPath = /\/(?:apply|application)(?:\/|$|\?)|\/oneclick-ui\//i.test(new URL(pageUrl).pathname + new URL(pageUrl).search);
     const fieldRoot = root || (applicationPath ? documentRef : null);
     return [...(fieldRoot?.querySelectorAll("input:not([type='hidden']), select, textarea") || [])].filter((field) => !field.disabled);
   }

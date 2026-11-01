@@ -8,6 +8,7 @@ const searchSummary = document.querySelector('#search-summary');
 const sourceHealth = document.querySelector('#source-health');
 const tailorOutput = document.querySelector('#tailor-output');
 const autofillOutput = document.querySelector('#autofill-output');
+const applications = document.querySelector('#applications');
 let current = null;
 let appState = null;
 let resumeReady = false;
@@ -16,6 +17,7 @@ let countdownTimer = null;
 let searching = false;
 let verifying = false;
 let lastBrowserCaptureId = '';
+let pairingPollTimer = null;
 let aiState = {configured: false, provider: '', model: ''};
 
 document.querySelector('#verify').addEventListener('click', () => runVerification());
@@ -39,6 +41,14 @@ document.querySelector('#test-provider').addEventListener('click', testProvider)
 document.querySelector('#remove-provider').addEventListener('click', removeProvider);
 document.querySelector('#ai-provider').addEventListener('change', updateModelPlaceholder);
 document.querySelector('#pair-extension').addEventListener('click', pairExtension);
+document.querySelector('#test-extension').addEventListener('click', testExtensionConnection);
+document.querySelector('#unpair-extension').addEventListener('click', unpairExtension);
+document.querySelector('#add-past-application').addEventListener('click', addPastApplication);
+document.querySelector('#outcome-learning-toggle').addEventListener('change', saveOutcomeLearningSetting);
+applications.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-save-outcome]');
+  if (button) saveApplicationOutcome(button.dataset.saveOutcome, button);
+});
 document.querySelector('#resume-toggle').addEventListener('click', () => {
   const section = document.querySelector('#resume');
   const collapsed = section.classList.toggle('is-complete');
@@ -236,12 +246,70 @@ async function pairExtension() {
   button.disabled = true;
   try {
     const pairing = await requestJson('/api/extension/pair', {method: 'POST', body: '{}'});
-    document.querySelector('#extension-status').className = 'readiness ready';
-    document.querySelector('#extension-status').textContent = 'Pairing token ready.';
-    document.querySelector('#pairing-output').innerHTML = `<p>1. Open <code>chrome://extensions</code>, enable Developer mode, and load this unpacked folder:</p><code>${escape(pairing.extensionPath)}</code><p>2. Paste this pairing token into the ClearLead extension:</p><div class="token-row"><code id="pairing-token">${escape(pairing.token)}</code><button class="button ghost" id="copy-pairing">Copy token</button></div><p class="quiet">Creating another token invalidates this one.</p>`;
+    renderExtensionPairing({state: 'waiting', tokenActive: true, expectedVersion: pairing.expectedVersion, expiresAt: pairing.expiresAt});
+    document.querySelector('#pairing-output').innerHTML = `<p>1. Open <code>chrome://extensions</code>, enable Developer mode, and load or reload this unpacked folder:</p><code>${escape(pairing.extensionPath)}</code><p>2. Confirm the extension shows version <strong>${escape(pairing.expectedVersion)}</strong>, then paste this one-time token:</p><div class="token-row"><code id="pairing-token">${escape(pairing.token)}</code><button class="button ghost" id="copy-pairing">Copy token</button></div><p class="quiet">ClearLead is waiting for the extension to prove the connection. Creating another token invalidates this one.</p>`;
     document.querySelector('#copy-pairing').addEventListener('click', async () => { await navigator.clipboard.writeText(pairing.token); document.querySelector('#copy-pairing').textContent = 'Copied'; });
+    startPairingPoll();
   } catch (error) { document.querySelector('#pairing-output').textContent = error.message; }
   finally { button.disabled = false; }
+}
+
+async function testExtensionConnection({quiet = false} = {}) {
+  const button = document.querySelector('#test-extension');
+  button.disabled = true;
+  try {
+    const data = await requestJson('/api/extension/status');
+    renderExtensionPairing(data.pairing);
+    if (!quiet) document.querySelector('#pairing-output').innerHTML = pairingStatusMessage(data.pairing);
+    return data.pairing;
+  } catch (error) {
+    if (!quiet) document.querySelector('#pairing-output').textContent = error.message;
+    return null;
+  } finally { button.disabled = false; }
+}
+
+async function unpairExtension() {
+  if (!window.confirm('Revoke the current browser pairing? The extension will clear its token and must be paired again.')) return;
+  const data = await requestJson('/api/extension/unpair', {method: 'POST', body: '{}'});
+  clearInterval(pairingPollTimer);
+  renderExtensionPairing(data.pairing);
+  document.querySelector('#pairing-output').innerHTML = `<p>${escape(data.message)}</p>`;
+}
+
+function startPairingPoll() {
+  clearInterval(pairingPollTimer);
+  let attempts = 0;
+  pairingPollTimer = setInterval(async () => {
+    attempts += 1;
+    const pairing = await testExtensionConnection({quiet: true});
+    if (pairing?.connected || attempts >= 30) {
+      clearInterval(pairingPollTimer);
+      if (pairing?.connected) document.querySelector('#pairing-output').innerHTML = pairingStatusMessage(pairing);
+    }
+  }, 2_000);
+}
+
+function renderExtensionPairing(pairing = {}) {
+  appState = {...(appState || {}), extensionPairing: pairing};
+  const status = document.querySelector('#extension-status');
+  const connected = pairing.state === 'connected' && !pairing.updateRequired;
+  status.className = `readiness ${connected ? 'ready' : 'not-ready'}`;
+  status.textContent = pairing.state === 'connected'
+    ? pairing.updateRequired ? `Connected, but extension v${pairing.receivedVersion || '?'} must update to v${pairing.expectedVersion}.` : `Connected live · extension v${pairing.receivedVersion || pairing.expectedVersion} · seen ${relativeTime(pairing.lastSeenAt)}`
+    : pairing.state === 'waiting' ? 'Token created — waiting for the extension to confirm it.'
+      : pairing.state === 'stale' ? `Pairing stale · last seen ${relativeTime(pairing.lastSeenAt)}. Open the extension or replace the token.`
+        : 'Extension not paired.';
+  document.querySelector('#test-extension').disabled = !pairing.tokenActive;
+  document.querySelector('#unpair-extension').disabled = !pairing.tokenActive;
+  document.querySelector('#pair-extension').textContent = pairing.tokenActive ? 'Replace pairing token' : 'Create pairing token';
+}
+
+function pairingStatusMessage(pairing = {}) {
+  if (pairing.connected && !pairing.updateRequired) return `<p><strong>Connection confirmed live.</strong> Extension v${escape(pairing.receivedVersion)} checked in ${escape(relativeTime(pairing.lastSeenAt))}. This pairing expires ${escape(new Date(pairing.expiresAt).toLocaleDateString())}.</p>`;
+  if (pairing.updateRequired) return `<p><strong>Extension update required.</strong> ClearLead expects v${escape(pairing.expectedVersion)}, but the browser reported v${escape(pairing.receivedVersion || 'unknown')}. Reload the unpacked extension once; future updates are detected and reloaded automatically.</p>`;
+  if (pairing.state === 'waiting') return '<p>The token exists, but no extension has successfully used it yet. Paste it into the extension and leave the side panel open while ClearLead confirms the connection.</p>';
+  if (pairing.state === 'stale') return '<p>The saved token has not checked in recently. Open the ClearLead extension on any page, then retest. If it clears the token, create a replacement token here.</p>';
+  return '<p>No active browser pairing exists. Create a token, then paste it into the extension.</p>';
 }
 
 async function searchJobs({silent = false} = {}) {
@@ -331,6 +399,7 @@ function jobCard(job) {
   const reasons = job.match?.reasons || [];
   const risks = job.match?.risks || [];
   const decision = job.match?.decision;
+  const outcomeLearning = job.match?.outcomeLearning;
   const qualifications = job.match?.qualifications?.items || [];
   const sourceUrl = safeHttpUrl(job.url) ? job.url : '#verify-panel';
   const verificationEvidence = check ? verificationEvidenceMarkup({...check, source: check.source || job.source}, {allowSave: status === 'live'}) : '';
@@ -340,12 +409,13 @@ function jobCard(job) {
     <div class="job-meta">${escape(job.location)}<br>published ${escape(age)}</div>
     <div class="score-row"><strong>${score}</strong><span>strategic match</span>${breakdown ? `<i>title ${breakdown.title} · evidence ${breakdown.resume} · location ${breakdown.location} · apply ${breakdown.application ?? '—'} · fresh ${breakdown.freshness}</i>` : ''}</div>
     <div class="matchbar" aria-label="${score}% resume match"><i style="width:${Math.max(3, Math.min(score, 100))}%"></i></div>
+    ${outcomeLearning ? `<p class="learning-nudge">${escape(outcomeLearning.explanation)} Evidence: ${escape(outcomeLearning.evidence.join(', '))}</p>` : ''}
     <div class="match-copy">${reasons.length ? reasons.map((reason) => `<span>${escape(reason)}</span>`).join('') : (skills ? `matched: ${escape(skills)}` : 'No explicit skill overlap found')}${confidence ? `<small>${escape(confidence.level)} source confidence</small>` : ''}</div>
     ${qualifications.length ? `<details class="qualification-matrix"><summary>Requirement check · ${job.match.qualifications.counts.met} met · ${job.match.qualifications.counts.uncertain} uncertain · ${job.match.qualifications.counts.missing} missing</summary>${qualifications.map((item) => `<div class="qualification ${escape(item.status)}"><strong>${escape(item.status)} · ${escape(item.importance)}</strong><span>${escape(item.label)}</span><p>posting: ${escape(item.postingEvidence || 'evidence unavailable')}<br>candidate: ${escape(item.candidateEvidence || 'evidence unavailable')}<br>${escape(item.explanation)}</p></div>`).join('')}</details>` : ''}
     ${risks.length ? `<div class="fit-risks"><strong>Review before applying</strong>${risks.map((risk) => `<p>${escape(risk)}</p>`).join('')}</div>` : ''}
     <details class="job-description"><summary>Read job description</summary><p>${escape(job.description || 'The source did not provide a description. Open the posting to review it.')}</p></details>
     ${verificationEvidence}
-    ${status === 'blocked' ? '<div class="browser-handoff"><strong>Browser check needed</strong><p>Open the posting, complete any human check yourself, then choose <em>Verify current job page</em> in the paired ClearLead extension. This card will update when rendered evidence arrives.</p></div>' : ''}
+    ${status === 'blocked' ? '<div class="browser-handoff"><strong>Browser check needed</strong><p>Open the posting in your browser. If a human check appears, complete it; if the job renders normally, continue immediately. Then choose <em>Verify current job page</em> in the paired ClearLead extension.</p></div>' : ''}
     <div class="job-actions">${actions}<a class="text-link" href="${escape(sourceUrl)}" ${sourceUrl === '#verify-panel' ? '' : 'target="_blank" rel="noreferrer"'}>open source ↗</a></div>
   </article>`;
 }
@@ -375,6 +445,7 @@ function wireJobActions(container) {
   container.querySelectorAll('[data-kit]').forEach((button) => button.addEventListener('click', () => createApplicationKit(button.dataset.kit, button)));
   container.querySelectorAll('[data-resume]').forEach((button) => button.addEventListener('click', () => makeCustomResume(button.dataset.resume, button)));
   container.querySelectorAll('[data-autofill]').forEach((button) => button.addEventListener('click', () => prepareAutofill(button.dataset.autofill, button)));
+  container.querySelectorAll('[data-mark-applied]').forEach((button) => button.addEventListener('click', () => markLeadApplied(button.dataset.markApplied, button)));
 }
 
 async function runVerification(discoveredUrl, metadata = {}) {
@@ -417,11 +488,20 @@ function renderResult(check) {
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Review the evidence above, then explicitly decide whether this lead belongs in your local queue.</p><div class="result-actions"><button class="button primary" data-save="${escape(check.verificationId)}">Save verified lead</button>${tailorAction}</div>`);
     wireJobActions(result);
   } else if (check.status === 'blocked' || check.status === 'inconclusive') {
-    if (check.status === 'blocked') result.insertAdjacentHTML('beforeend', '<div class="browser-handoff"><strong>CAPTCHA handoff</strong><p>Open the source, complete the challenge yourself, wait for the job posting to render, then click <em>Verify current job page</em> in the paired ClearLead extension.</p><button class="button ghost" id="show-extension-setup">Set up browser verification</button></div>');
+    if (check.status === 'blocked') {
+      const browserUrl = safeHttpUrl(check.finalUrl || check.url) ? check.finalUrl || check.url : '';
+      const connected = extensionReady();
+      result.insertAdjacentHTML('beforeend', `<div class="browser-handoff"><strong>${connected ? 'Extension connected — browser check ready' : 'Browser handoff'}</strong><p>Open the source. If a human check appears, complete it yourself; if the posting renders normally, continue immediately. On that job tab, open the ClearLead extension and choose <em>Verify current job page</em>.</p>${connected && browserUrl ? `<a class="button primary" href="${escape(browserUrl)}" target="_blank" rel="noreferrer">Open source in browser</a>` : '<button class="button ghost" id="show-extension-setup">Set up browser verification</button>'}</div>`);
+    }
     result.insertAdjacentHTML('beforeend', `<p class="quiet">Nothing was saved. Choose what happens next.</p>${actionMarkup(check.finalUrl || check.url)}`);
     wireOutcomeActions(check.finalUrl || check.url);
     document.querySelector('#show-extension-setup')?.addEventListener('click', () => document.querySelector('#extension-setup').scrollIntoView({behavior: 'smooth', block: 'center'}));
   }
+}
+
+function extensionReady() {
+  const pairing = appState?.extensionPairing;
+  return pairing?.state === 'connected' && pairing.connected === true && !pairing.updateRequired;
 }
 
 async function queueLead(verificationId, button) {
@@ -663,6 +743,7 @@ function showAutofillPack(pack, {scroll = false, resumed = false} = {}) {
   autofillOutput.className = 'tailor-output active';
   autofillOutput.innerHTML = `<div class="tailor-head"><div><p class="eyebrow">${resumed ? 'application run resumed' : 'application copilot ready'}</p><h3>${escape(pack.job.company)} · ${escape(pack.job.title)}</h3></div><a class="button primary" href="${escape(pack.job.applicationUrl)}" target="_blank" rel="noreferrer">Open verified application ↗</a></div>${resumeHandoff}<p class="quiet">Run ${escape(pack.run.id.slice(0, 8))} is saved locally. Open the verified application, then click the ClearLead extension icon. Its persistent side panel fills repeatable fields, attaches the selected resume when you approve it, and guides every step until your final review. ClearLead never clicks Submit.</p>`;
   appState = {...(appState || {}), autofillPack: pack, applicationRuns: [pack.run, ...((appState?.applicationRuns || []).filter((run) => run.id !== pack.run.id))]};
+  renderPreparedApplications(appState.applicationRuns);
   updateJourney(appState);
   if (scroll) autofillOutput.scrollIntoView({behavior: 'smooth', block: 'center'});
 }
@@ -758,10 +839,183 @@ function renderQueue(queue) {
       const target = safeHttpUrl(lead.finalUrl || lead.url) ? lead.finalUrl || lead.url : '';
       const link = target ? `<a href="${escape(target)}" target="_blank" rel="noreferrer">${escape(lead.title || target)}</a>` : `<a href="#verify-panel">${escape(lead.title || 'Saved lead')}</a>`;
       const reverify = target ? `<button class="button ghost" data-verify-url="${escape(target)}">Reverify source</button>` : '<span class="quiet">No safe source URL is available; discard this legacy entry from local data if it is no longer useful.</span>';
-      return `<article class="lead"><i class="lead-status"></i><div>${link}<p class="why">${lead.company ? `${escape(lead.company)} · ` : ''}${escape(lead.reason)}</p>${verificationEvidenceMarkup(lead, {queue: true})}<div class="lead-actions">${reverify}</div></div><time>${relativeTime(lead.savedAt)}</time></article>`;
+      const alreadyApplied = (appState?.applications || []).some((application) => application.leadId === lead.id || comparableUrl(application.job?.url) === comparableUrl(target));
+      const appliedAction = alreadyApplied
+        ? '<a class="button ghost" href="#applied">View in Applied</a>'
+        : lead.title && lead.company
+          ? `<button class="button primary" data-mark-applied="${escape(lead.id)}">I applied</button>`
+          : '<a class="button primary" href="#applied">Add application details</a>';
+      return `<article class="lead"><i class="lead-status"></i><div>${link}<p class="why">${lead.company ? `${escape(lead.company)} · ` : ''}${escape(lead.reason)}</p>${verificationEvidenceMarkup(lead, {queue: true})}<div class="lead-actions">${appliedAction}${reverify}</div></div><time>${relativeTime(lead.savedAt)}</time></article>`;
     }).join('')
     : '<div class="empty-state"><strong>Your queue is clear.</strong><p>Search a role, verify it live, then add it here for review.</p></div>';
   wireJobActions(leads);
+}
+
+const OUTCOME_LABELS = {
+  applied: 'Applied', recruiter_contact: 'Recruiter contact', screening: 'Screening', assessment: 'Assessment', interview: 'Interview',
+  final_interview: 'Final interview', offer: 'Offer', hired: 'Hired', rejected: 'Rejected', withdrawn: 'Withdrew',
+  offer_declined: 'Offer declined', no_response: 'No response as of today',
+};
+const OUTCOME_REASONS = {
+  unknown: 'Unknown / not provided', experience: 'Experience mismatch', skills: 'Skill mismatch', role_fit: 'Role fit', location: 'Location',
+  compensation: 'Compensation', authorization: 'Work authorization', resume: 'Resume / screening', assessment: 'Assessment', interview: 'Interview',
+  timing: 'Timing', position_closed: 'Position closed', internal_candidate: 'Internal candidate', other: 'Other',
+};
+const REACHED_LABELS = {application: 'Application only', screening: 'Recruiter / screen', interview: 'Interview', final_interview: 'Final interview', offer: 'Offer'};
+
+function renderApplications(items = [], learning = {}) {
+  document.querySelector('#applied-total').textContent = items.length;
+  document.querySelector('#applied-responses').textContent = learning.responses || 0;
+  document.querySelector('#applied-interviews').textContent = learning.interviews || 0;
+  document.querySelector('#applied-offers').textContent = learning.offers || 0;
+  const toggle = document.querySelector('#outcome-learning-toggle');
+  toggle.checked = learning.rankingEnabled !== false;
+  const title = document.querySelector('#learning-title');
+  const copy = document.querySelector('#learning-copy');
+  title.textContent = learning.mode === 'active' ? 'Calibration active' : learning.mode === 'paused' ? 'Ranking influence paused' : 'Observing outcomes';
+  copy.textContent = learning.mode === 'active'
+    ? `Using ${learning.sampleSize} comparable outcomes with a capped local adjustment. Hard eligibility and qualification gates never change.`
+    : learning.mode === 'paused'
+      ? 'Your timeline remains local and intact, but it will not adjust future ranks.'
+      : `${learning.sampleSize || 0}/${learning.minimumSamples || 20} comparable outcomes and ${learning.responses || 0}/${learning.minimumResponses || 5} responses recorded. Signals remain in shadow mode until the evidence gate is met.`;
+  document.querySelector('#learning-signals').innerHTML = (learning.signals || []).slice(0, 6).map((signal) => `<span title="${escape(`${signal.responses} responses from ${signal.samples} comparable outcomes`)}">${escape(signal.label)} · ${signal.samples}</span>`).join('') || '<span>Waiting for confirmed employer outcomes</span>';
+  applications.innerHTML = items.length ? items.map(applicationCard).join('') : '<div class="empty-state"><strong>No applied jobs yet.</strong><p>Completed ClearLead applications appear here automatically. You can also mark a saved lead as applied or add past history above.</p></div>';
+  renderPreparedApplications(appState?.applicationRuns || []);
+  if (!document.querySelector('#past-job-date').value) document.querySelector('#past-job-date').value = new Date().toISOString().slice(0, 10);
+}
+
+function renderPreparedApplications(runs = []) {
+  const container = document.querySelector('#prepared-applications');
+  if (!container) return;
+  const prepared = runs.filter((run) => run.status !== 'complete');
+  document.querySelector('#prepared-total').textContent = `${prepared.length} ready for review`;
+  container.innerHTML = prepared.length ? prepared.map(preparedApplicationCard).join('') : '<div class="empty-state"><strong>No applications waiting.</strong><p>When you prepare a verified job, its employer handoff will stay visible here until submission is confirmed.</p></div>';
+  container.querySelectorAll('[data-resume-run]').forEach((button) => button.addEventListener('click', (event) => resumeSavedApplication(event.currentTarget.dataset.resumeRun, event.currentTarget)));
+}
+
+function preparedApplicationCard(run) {
+  const job = run.job || {};
+  const applicationUrl = safeHttpUrl(job.applicationUrl) ? job.applicationUrl : safeHttpUrl(job.url) ? job.url : '';
+  const status = String(run.status || 'prepared').replaceAll('_', ' ');
+  const resume = run.resume || {};
+  return `<article class="panel application-card prepared-application-card" data-run-id="${escape(run.id)}">
+    <div class="application-card-head"><div><p class="eyebrow">prepared · not submitted</p><h3>${escape(job.title || 'Prepared application')}</h3><p>${escape(job.company || 'Company not recorded')} · ${escape(job.location || 'Location not recorded')}</p></div><span class="outcome-badge prepared">${escape(status)}</span></div>
+    <div class="application-facts"><span>No employer confirmation</span><span>${resume.filename ? `resume · ${escape(resume.filename)}` : 'resume · not recorded'}</span></div>
+    ${applicationResumeActions(resume)}
+    <div class="prepared-actions">${applicationUrl ? `<a class="button primary" href="${escape(applicationUrl)}" target="_blank" rel="noreferrer">Continue application ↗</a>` : ''}<button class="button ghost" type="button" data-resume-run="${escape(run.id)}">Revalidate &amp; resume copilot</button></div>
+    <p class="quiet">Review the employer’s remaining questions and click its final Submit button yourself. Then use the ClearLead extension to confirm the employer completion page so this moves into Actually applied.</p>
+  </article>`;
+}
+
+function applicationCard(application) {
+  const job = application.job || {};
+  const url = safeHttpUrl(job.url) ? job.url : '';
+  const stage = OUTCOME_LABELS[application.currentStage] || 'Applied';
+  const events = (application.events || []).slice(-4).reverse();
+  const snapshot = application.decisionSnapshot;
+  const resume = application.resume?.filename ? `<span>resume · ${escape(application.resume.filename)}</span>` : '<span>resume · not recorded</span>';
+  const resumeActions = applicationResumeActions(application.resume);
+  const evidence = application.evidence === 'employer_completion' ? 'employer confirmation detected' : 'confirmed by you';
+  const updateLabel = ['offer', 'hired', 'rejected', 'withdrawn', 'offer_declined'].includes(application.currentStage) ? 'Add correction or new result' : 'Mark employer update';
+  return `<article class="panel application-card" data-application-id="${escape(application.id)}">
+    <div class="application-card-head"><div><p class="eyebrow">${escape(evidence)}</p><h3>${url ? `<a href="${escape(url)}" target="_blank" rel="noreferrer">${escape(job.title || 'Applied role')} ↗</a>` : escape(job.title || 'Applied role')}</h3><p>${escape(job.company || 'Company not recorded')} · ${escape(job.location || 'Location not recorded')}</p></div><span class="outcome-badge ${escape(application.currentStage)}">${escape(stage)}</span></div>
+    <div class="application-facts"><span>applied ${escape(new Date(application.appliedAt).toLocaleDateString())}</span><span>${escape(job.source || 'manual history')}</span>${resume}</div>
+    ${resumeActions}
+    ${snapshot ? `<details class="decision-snapshot"><summary>Original decision snapshot · ${snapshot.score} match</summary><p>Scorer: ${escape(snapshot.scorerVersion || 'legacy')} · raw ${snapshot.rawScore}<br>${snapshot.decision ? `${escape(snapshot.decision.label)} — ${escape(snapshot.decision.reason)}` : 'No original decision label was recorded.'}<br>Snapshot ${snapshot.descriptionHash ? 'includes a posting digest' : 'comes from a legacy run'}; it is never recomputed from a later resume.</p></details>` : '<p class="quiet">Legacy/manual application — no original score snapshot is available.</p>'}
+    <div class="outcome-timeline">${events.map((event) => `<div><i></i><span><strong>${escape(OUTCOME_LABELS[event.type] || event.type)}</strong> · ${escape(new Date(event.at).toLocaleDateString())}${event.stageReached && event.type === 'rejected' ? ` · reached ${escape(REACHED_LABELS[event.stageReached] || event.stageReached)}` : ''}${event.reason && event.reason !== 'unknown' ? ` · ${escape(OUTCOME_REASONS[event.reason] || event.reason)}` : ''}${event.note ? `<small>${escape(event.note)}</small>` : ''}</span></div>`).join('')}</div>
+    <details class="outcome-update"><summary>${escape(updateLabel)}</summary><div class="outcome-form">
+      <div class="field"><label>Current result</label><select data-outcome-stage>${selectOptions(OUTCOME_LABELS, application.currentStage)}</select></div>
+      <div class="field"><label>Furthest stage reached</label><select data-outcome-reached>${selectOptions(REACHED_LABELS, application.stageReached)}</select></div>
+      <div class="field"><label>Reason <span>only if known</span></label><select data-outcome-reason>${selectOptions(OUTCOME_REASONS, application.outcomeReason || 'unknown')}</select></div>
+      <div class="field span-2"><label>Private note <span>optional</span></label><input data-outcome-note maxlength="1000" placeholder="Record confirmed facts; generic rejection emails usually give no reason."></div>
+      <button class="button primary" type="button" data-save-outcome="${escape(application.id)}">Save update</button>
+    </div></details>
+  </article>`;
+}
+
+function applicationResumeActions(resume = {}) {
+  const id = resume.draftId || resume.kitId;
+  if (!id || !resume.filename) return '';
+  const base = resume.draftId ? `/api/tailored/${encodeURIComponent(id)}` : `/api/kits/${encodeURIComponent(id)}/resume`;
+  const name = encodeURIComponent(String(resume.filename).replace(/\.[^.]+$/, ''));
+  return `<div class="application-resume-links"><a class="button ghost" href="${base}/pdf?name=${name}&view=1" target="_blank" rel="noreferrer">View custom resume</a><a class="button ghost" href="${base}/pdf?name=${name}">Download PDF</a><a class="button ghost" href="${base}/docx?name=${name}">Download DOCX</a></div>`;
+}
+
+function selectOptions(labels, selected) {
+  return Object.entries(labels).map(([value, label]) => `<option value="${escape(value)}"${value === selected ? ' selected' : ''}>${escape(label)}</option>`).join('');
+}
+
+async function markLeadApplied(leadId, button) {
+  button.disabled = true;
+  button.textContent = 'Recording…';
+  try {
+    const data = await requestJson('/api/applications', {method: 'POST', body: JSON.stringify({leadId, appliedAt: new Date().toISOString()})});
+    applyApplicationsPayload(data);
+    document.querySelector('#applied').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Retry I applied';
+    button.insertAdjacentHTML('afterend', `<span class="quiet">${escape(error.message)}</span>`);
+  }
+}
+
+async function addPastApplication() {
+  const button = document.querySelector('#add-past-application');
+  button.disabled = true;
+  button.textContent = 'Adding…';
+  try {
+    const date = document.querySelector('#past-job-date').value;
+    const data = await requestJson('/api/applications', {method: 'POST', body: JSON.stringify({
+      title: value('#past-job-title'), company: value('#past-job-company'), url: value('#past-job-url'),
+      appliedAt: date ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString(), note: value('#past-job-note'),
+    })});
+    applyApplicationsPayload(data);
+    if (data.saved) ['#past-job-title', '#past-job-company', '#past-job-url', '#past-job-note'].forEach((selector) => { document.querySelector(selector).value = ''; });
+    button.textContent = data.saved ? 'Added' : 'Already recorded';
+  } catch (error) {
+    button.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    setTimeout(() => { button.textContent = 'Add to Applied'; }, 2200);
+  }
+}
+
+async function saveApplicationOutcome(id, button) {
+  const card = button.closest('.application-card');
+  button.disabled = true;
+  button.textContent = 'Saving locally…';
+  try {
+    const data = await requestJson(`/api/applications/${encodeURIComponent(id)}/outcome`, {method: 'POST', body: JSON.stringify({
+      stage: card.querySelector('[data-outcome-stage]').value,
+      stageReached: card.querySelector('[data-outcome-reached]').value,
+      reason: card.querySelector('[data-outcome-reason]').value,
+      note: card.querySelector('[data-outcome-note]').value,
+      at: new Date().toISOString(),
+    })});
+    applyApplicationsPayload(data);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Retry update';
+    button.insertAdjacentHTML('afterend', `<span class="quiet">${escape(error.message)}</span>`);
+  }
+}
+
+async function saveOutcomeLearningSetting(event) {
+  const toggle = event.currentTarget;
+  toggle.disabled = true;
+  try {
+    const data = await requestJson('/api/applications/learning', {method: 'POST', body: JSON.stringify({rankingEnabled: toggle.checked})});
+    appState = {...(appState || {}), outcomeLearning: data.learning};
+    renderApplications(appState.applications || [], data.learning);
+  } catch {
+    toggle.checked = !toggle.checked;
+  } finally { toggle.disabled = false; }
+}
+
+function applyApplicationsPayload(data) {
+  appState = {...(appState || {}), applications: data.applications || [], outcomeLearning: data.learning || {}};
+  renderApplications(appState.applications, appState.outcomeLearning);
+  renderQueue(appState.leads || []);
 }
 
 async function loadState({autoSearch = true} = {}) {
@@ -772,10 +1026,10 @@ async function loadState({autoSearch = true} = {}) {
     showResume(data.resume);
     showProfile(data.profile, data.readiness);
     showApplicationProfile(data.applicationProfile, data.applicationReadiness);
-    document.querySelector('#extension-status').className = `readiness ${data.extensionPaired ? 'ready' : 'not-ready'}`;
-    document.querySelector('#extension-status').textContent = data.extensionPaired ? 'Extension pairing exists.' : 'Extension not paired.';
+    renderExtensionPairing(data.extensionPairing || {state: data.extensionPaired ? 'stale' : 'unpaired', tokenActive: data.extensionPaired});
     showSearchConfig(data.searchConfig);
     renderQueue(data.leads);
+    renderApplications(data.applications || [], data.outcomeLearning || {});
     showRecoverableApplication(data);
     updateJourney(data);
     if (data.searchStatus.lastRunAt) document.querySelector('#last-scan').textContent = `last scan ${relativeTime(data.searchStatus.lastRunAt)}`;
@@ -880,6 +1134,7 @@ async function requestJson(url, options = {}) { const response = await fetch(url
 function loadingCards() { return '<div class="empty-state"><strong>Building the ranked pool…</strong><p>Sources fail independently. The highest matches are verified with capped concurrency.</p></div>'; }
 function relativeTime(value) { const time = Date.parse(value || ''); if (!Number.isFinite(time)) return 'unknown'; const seconds = Math.round((time - Date.now()) / 1000); const absolute = Math.abs(seconds); if (absolute < 60) return 'just now'; const formatter = new Intl.RelativeTimeFormat('en', {numeric: 'auto'}); if (absolute < 3600) return formatter.format(Math.round(seconds / 60), 'minute'); if (absolute < 86400) return formatter.format(Math.round(seconds / 3600), 'hour'); return formatter.format(Math.round(seconds / 86400), 'day'); }
 function safeHttpUrl(value) { try { return /^https?:$/.test(new URL(value).protocol); } catch { return false; } }
+function comparableUrl(value) { try { const url = new URL(value); url.hash = ''; return `${url.origin}${url.pathname.replace(/\/$/, '')}`.toLowerCase(); } catch { return ''; } }
 function list(selector) { return document.querySelector(selector).value.split(/[,\n]/).map((value) => value.trim()).filter(Boolean); }
 function value(selector) { return document.querySelector(selector).value.trim(); }
 function termChip(value) { return `<span>${escape(value)}</span>`; }

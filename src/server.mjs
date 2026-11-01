@@ -22,8 +22,10 @@ import { formatReadiness, runtimeReadiness } from "./doctor.mjs";
 import { browserVerificationFromEvidence } from "./browser-verification.mjs";
 import { candidateTruthSummary } from "./candidate-truth.mjs";
 import { createResumeDocx, docxMimeType } from "./resume-docx.mjs";
+import { applyOutcomeLearning } from "./outcomes.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const expectedExtensionVersion = JSON.parse(fs.readFileSync(path.join(root, "extension", "manifest.json"), "utf8")).version;
 export function createAppServer({
   dataDir = path.join(root, "data"),
   verifyFn = verifyPosting,
@@ -60,7 +62,9 @@ export function createAppServer({
     }
     const annotated = store.recordSearch(search.allJobs, search.searchedAt);
     const byUrl = new Map(annotated.map((job) => [job.url, job]));
-    let jobs = search.jobs.map((job) => byUrl.get(job.url)).filter(Boolean);
+    const outcomeLearning = store.outcomeLearning();
+    let jobs = search.jobs.map((job) => byUrl.get(job.url)).filter(Boolean).map((job) => applyOutcomeLearning(job, outcomeLearning));
+    jobs.sort((left, right) => (right.match?.score || 0) - (left.match?.score || 0));
     rememberDiscovered(discoveredJobs, annotated);
     if (config.autoVerify && config.verifyLimit > 0) {
       jobs = await autoVerify(jobs, config.verifyLimit, verifyFn, liveVerifications, discoveredJobs);
@@ -78,6 +82,7 @@ export function createAppServer({
         newCount: jobs.filter((job) => job.isNew).length,
         verifiedCount: jobs.filter((job) => job.verification?.status === "live").length,
         checkedCount: jobs.filter((job) => job.verification).length,
+        outcomeLearning,
       },
     };
   }
@@ -86,25 +91,30 @@ export function createAppServer({
     setSecurityHeaders(res);
     const url = new URL(req.url, "http://127.0.0.1");
     const extensionSessionApi = url.pathname === "/api/extension/session";
+    const extensionHealthApi = url.pathname === "/api/extension/health";
+    const extensionDisconnectApi = url.pathname === "/api/extension/disconnect";
     const extensionPackApi = url.pathname === "/api/extension/pack";
     const extensionVerifyApi = url.pathname === "/api/extension/verify";
     const extensionTransitionApi = url.pathname === "/api/extension/transition";
     const extensionRunApi = url.pathname === "/api/extension/run";
-    const extensionTokenApi = extensionSessionApi || extensionVerifyApi || extensionTransitionApi;
+    const extensionTokenApi = extensionSessionApi || extensionHealthApi || extensionDisconnectApi || extensionVerifyApi || extensionTransitionApi;
     const extensionCapabilityApi = extensionPackApi || extensionRunApi;
     const extensionApi = extensionTokenApi || extensionCapabilityApi;
-    const extensionRequestOrigin = extensionOrigin(req);
-    if (extensionRequestOrigin) res.setHeader("access-control-allow-origin", extensionRequestOrigin);
+    const corsExtensionOrigin = extensionOrigin(req);
+    const extensionRequestOrigin = extensionClientIdentity(req);
+    if (corsExtensionOrigin) res.setHeader("access-control-allow-origin", corsExtensionOrigin);
     if (req.method === "OPTIONS" && extensionApi && extensionRequestOrigin) {
-      res.writeHead(204, { "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
+      res.writeHead(204, { "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type, x-clearlead-extension-id, x-clearlead-extension-version", "access-control-max-age": "600" });
       return res.end();
     }
     if (extensionApi) {
-      if (!extensionRequestOrigin || !isLocalHost(req)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
+      if (!extensionRequestOrigin || !isLocalHost(req)) return json(res, 401, { code: "invalid_extension_origin", error: "Reload the unpacked ClearLead extension from chrome://extensions, then try again." });
       if (extensionTokenApi) {
         const pairing = store.extensionPairing();
-        if (!validExtensionToken(req, pairing, extensionRequestOrigin)) return json(res, 401, { error: "Pair the ClearLead extension again from the local app." });
-        if (!pairing.extensionOrigin) store.saveExtensionPairing({ ...pairing, extensionOrigin: extensionRequestOrigin });
+        const authError = extensionTokenError(req, pairing, extensionRequestOrigin);
+        if (authError) return json(res, 401, authError);
+        const reportedVersion = extensionVersionHeader(req);
+        store.saveExtensionPairing({ ...pairing, extensionOrigin: preferredExtensionIdentity(pairing.extensionOrigin, extensionRequestOrigin), extensionVersion: reportedVersion || pairing.extensionVersion || "", lastSeenAt: new Date().toISOString() });
       } else if (!validPackCapability(req, currentAutofillPack, extensionRequestOrigin)) return json(res, 401, { error: "Your autofill session expired. Prepare the job again in ClearLead." });
     } else if (!isTrustedLocalRequest(req)) return json(res, 403, { error: "ClearLead only accepts requests from this local app." });
     const isPdfUpload = req.method === "POST" && url.pathname === "/api/resume/pdf";
@@ -121,13 +131,14 @@ export function createAppServer({
       const kitResumePdfRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/pdf$/i);
       const kitResumeDocxRoute = url.pathname.match(/^\/api\/kits\/([a-f0-9-]{36})\/resume\/docx$/i);
       const resumeApplicationRoute = url.pathname.match(/^\/api\/application\/runs\/([a-f0-9-]{36})\/resume$/i);
+      const applicationOutcomeRoute = url.pathname.match(/^\/api\/applications\/([a-f0-9-]{36})\/outcome$/i);
       if (req.method === "GET" && tailoredPdfRoute) {
         const item = store.tailoredFile(tailoredPdfRoute[1]);
         if (!item) return json(res, 404, { error: "Tailored draft not found." });
         const contents = fs.readFileSync(item.file, "utf8");
         const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
         const pdf = await createResumePdf(contents, { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
-        return sendBufferDownload(res, pdf, filename, "application/pdf");
+        return url.searchParams.get("view") === "1" ? sendBufferView(res, pdf, filename, "application/pdf") : sendBufferDownload(res, pdf, filename, "application/pdf");
       }
       if (req.method === "GET" && tailoredDocxRoute) {
         const item = store.tailoredFile(tailoredDocxRoute[1]);
@@ -171,7 +182,7 @@ export function createAppServer({
         if (!item) return json(res, 404, { error: "AI resume draft not found." });
         const filename = downloadFilename(url.searchParams.get("name"), item.filename, "pdf");
         const pdf = await createResumePdf(fs.readFileSync(item.file, "utf8"), { title: `${item.title || "Tailored resume"} resume`, author: store.applicationProfile().fullName || "" });
-        return sendBufferDownload(res, pdf, filename, "application/pdf");
+        return url.searchParams.get("view") === "1" ? sendBufferView(res, pdf, filename, "application/pdf") : sendBufferDownload(res, pdf, filename, "application/pdf");
       }
       if (req.method === "GET" && kitResumeDocxRoute) {
         const item = store.applicationKitFile(kitResumeDocxRoute[1], "resume");
@@ -203,15 +214,48 @@ export function createAppServer({
           applicationProfile,
           candidateTruth: candidateTruthSummary(store.candidateTruth()),
           applicationReadiness: applicationProfileReadiness(applicationProfile),
-          extensionPaired: activePairing(store.extensionPairing()),
+          extensionPaired: extensionPairingStatus(store.extensionPairing()).paired,
+          extensionPairing: extensionPairingStatus(store.extensionPairing()),
           autofillPack: currentAutofillPack ? publicAutofillPack(currentAutofillPack) : null,
           applicationRuns: store.applicationRuns(),
+          applications: store.applications(),
+          outcomeLearning: store.outcomeLearning(),
           runtime,
         });
+      }
+      if (req.method === "GET" && url.pathname === "/api/applications") {
+        return json(res, 200, { applications: store.applications(), learning: store.outcomeLearning() });
+      }
+      if (req.method === "POST" && url.pathname === "/api/applications") {
+        const request = await body(req);
+        let source = request;
+        if (request.leadId) {
+          const lead = store.leads().find((item) => item.id === request.leadId);
+          if (!lead) throw new Error("That saved lead is unavailable. Reverify it or add the application manually.");
+          source = { ...request, job: lead };
+        }
+        const saved = store.saveManualApplication(source);
+        return json(res, 200, { ...saved, applications: store.applications(), learning: store.outcomeLearning() });
+      }
+      if (req.method === "POST" && applicationOutcomeRoute) {
+        const application = store.recordApplicationOutcome(applicationOutcomeRoute[1], await body(req));
+        return json(res, 200, { application, applications: store.applications(), learning: store.outcomeLearning() });
+      }
+      if (req.method === "POST" && url.pathname === "/api/applications/learning") {
+        const learning = store.saveOutcomeSettings(await body(req));
+        return json(res, 200, { learning });
       }
       if (req.method === "GET" && url.pathname === "/api/application-profile") {
         const applicationProfile = store.applicationProfile();
         return json(res, 200, { applicationProfile, readiness: applicationProfileReadiness(applicationProfile) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/extension/status") {
+        return json(res, 200, { pairing: extensionPairingStatus(store.extensionPairing()) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/unpair") {
+        store.clearExtensionPairing();
+        currentAutofillPack = null;
+        return json(res, 200, { pairing: extensionPairingStatus(null), message: "The browser pairing was revoked. The extension will clear its stale token automatically." });
       }
       if (req.method === "POST" && resumeApplicationRoute) {
         const run = store.applicationRun(resumeApplicationRoute[1]);
@@ -417,8 +461,8 @@ export function createAppServer({
         const token = randomBytes(32).toString("base64url");
         const pairedAt = new Date().toISOString();
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        store.saveExtensionPairing({ tokenHash: hashToken(token), pairedAt, expiresAt, extensionOrigin: "" });
-        return json(res, 200, { token, pairedAt, expiresAt, extensionPath: path.join(root, "extension"), message: "A new pairing token was created. Any older extension token is now invalid." });
+        store.saveExtensionPairing({ tokenHash: hashToken(token), pairedAt, expiresAt, extensionOrigin: "", extensionVersion: "", lastSeenAt: null });
+        return json(res, 200, { token, pairedAt, expiresAt, extensionPath: path.join(root, "extension"), expectedVersion: expectedExtensionVersion, message: "A new one-time pairing token was created. Any older extension token is now invalid." });
       }
       if (req.method === "POST" && url.pathname === "/api/application/prepare") {
         const { verificationId, draftId, kitId, filename } = await body(req);
@@ -454,11 +498,20 @@ export function createAppServer({
         return json(res, 200, { ...publicAutofillPack(currentAutofillPack), run });
       }
       if (req.method === "GET" && url.pathname === "/api/extension/session") {
-        if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 200, { paired: true, packReady: false });
+        const extension = extensionClientStatus(req);
+        if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 200, { paired: true, packReady: false, extension });
         const capability = randomBytes(32).toString("base64url");
         currentAutofillPack.capabilityHash = hashToken(capability);
         currentAutofillPack.capabilityOrigin = extensionRequestOrigin;
-        return json(res, 200, { paired: true, packReady: true, capability, runId: currentAutofillPack.id, expiresAt: new Date(currentAutofillPack.expiresAt).toISOString(), job: currentAutofillPack.job, handoff: currentAutofillPack.handoff });
+        return json(res, 200, { paired: true, packReady: true, capability, runId: currentAutofillPack.id, expiresAt: new Date(currentAutofillPack.expiresAt).toISOString(), job: currentAutofillPack.job, handoff: currentAutofillPack.handoff, extension });
+      }
+      if (req.method === "GET" && url.pathname === "/api/extension/health") {
+        return json(res, 200, { paired: true, serverTime: new Date().toISOString(), extension: extensionClientStatus(req) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/extension/disconnect") {
+        store.clearExtensionPairing();
+        currentAutofillPack = null;
+        return json(res, 200, { paired: false, message: "Pairing removed from ClearLead and this browser." });
       }
       if (req.method === "GET" && url.pathname === "/api/extension/pack") {
         if (!currentAutofillPack || currentAutofillPack.expiresAt <= Date.now()) return json(res, 404, { error: "No current autofill pack. Prepare one from a verified job in ClearLead." });
@@ -480,7 +533,10 @@ export function createAppServer({
       }
       if (req.method === "POST" && url.pathname === "/api/extension/verify") {
         const request = await body(req);
-        const job = findDiscoveredJob(discoveredJobs, request.pageUrl);
+        const job = findDiscoveredJob(discoveredJobs, request.pageUrl, {
+          pageTitle: request.pageTitle,
+          atsFamily: request.atsFamily,
+        });
         const verification = browserVerificationFromEvidence(request, { job });
         if (!verification.finalUrl) return json(res, 400, { status: verification.status, error: verification.reason });
         const publicVerification = { ...verification, captureId: randomUUID() };
@@ -583,19 +639,68 @@ function extensionOrigin(req) {
   const origin = String(req.headers.origin || "");
   return /^chrome-extension:\/\/[a-p]{32}$/.test(origin) ? origin : "";
 }
+const LEGACY_EXTENSION_IDENTITY = "clearlead-extension://local-client";
+function extensionClientIdentity(req) {
+  const origin = extensionOrigin(req);
+  if (origin) return origin;
+  if (String(req.headers.origin || "")) return "";
+  const extensionId = String(req.headers["x-clearlead-extension-id"] || "").trim();
+  if (/^[a-p]{32}$/.test(extensionId)) return `chrome-extension://${extensionId}`;
+  return /^Bearer\s+\S+$/i.test(String(req.headers.authorization || "")) ? LEGACY_EXTENSION_IDENTITY : "";
+}
+function preferredExtensionIdentity(current, received) {
+  if (received === LEGACY_EXTENSION_IDENTITY && /^chrome-extension:\/\/[a-p]{32}$/.test(String(current || ""))) return current;
+  return received;
+}
+function sameExtensionIdentity(left, right) {
+  return left === right || left === LEGACY_EXTENSION_IDENTITY || right === LEGACY_EXTENSION_IDENTITY;
+}
 function hashToken(value) { return createHash("sha256").update(String(value || "")).digest("hex"); }
 function activePairing(pairing) { return Boolean(pairing?.tokenHash) && Date.parse(pairing?.expiresAt || "") > Date.now(); }
+function extensionVersionHeader(req) { const value = String(req.headers["x-clearlead-extension-version"] || "").trim(); return /^\d+\.\d+\.\d+(?:[-+][a-z0-9.-]+)?$/i.test(value) ? value.slice(0, 40) : ""; }
+function extensionClientStatus(req) {
+  const receivedVersion = extensionVersionHeader(req);
+  return { expectedVersion: expectedExtensionVersion, receivedVersion, updateRequired: receivedVersion !== expectedExtensionVersion };
+}
+function extensionPairingStatus(pairing) {
+  const tokenActive = activePairing(pairing);
+  const lastSeenAt = validDate(pairing?.lastSeenAt) ? pairing.lastSeenAt : null;
+  const age = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Infinity;
+  const paired = tokenActive && Boolean(pairing?.extensionOrigin);
+  const connected = paired && age <= 2 * 60 * 1000;
+  const receivedVersion = String(pairing?.extensionVersion || "");
+  const state = !tokenActive ? "unpaired" : !paired ? "waiting" : connected ? "connected" : "stale";
+  return {
+    state,
+    tokenActive,
+    paired,
+    connected,
+    pairedAt: validDate(pairing?.pairedAt) ? pairing.pairedAt : null,
+    expiresAt: validDate(pairing?.expiresAt) ? pairing.expiresAt : null,
+    lastSeenAt,
+    receivedVersion,
+    expectedVersion: expectedExtensionVersion,
+    updateRequired: paired && receivedVersion !== expectedExtensionVersion,
+    extensionIdHint: pairing?.extensionOrigin ? String(pairing.extensionOrigin).replace("chrome-extension://", "").slice(0, 8) : "",
+  };
+}
 function validExtensionToken(req, pairing, origin) {
+  return !extensionTokenError(req, pairing, origin);
+}
+function extensionTokenError(req, pairing, origin) {
   const supplied = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
   const expected = String(pairing?.tokenHash || "");
-  if (!activePairing(pairing) || !supplied || !/^[a-f0-9]{64}$/.test(expected)) return false;
-  if (pairing.extensionOrigin && pairing.extensionOrigin !== origin) return false;
+  if (!pairing?.tokenHash) return { code: "pairing_revoked", error: "This browser pairing was removed. Create a new token in ClearLead Settings." };
+  if (!activePairing(pairing)) return { code: "pairing_expired", error: "This pairing token expired. Create a replacement token in ClearLead Settings." };
+  if (!supplied || !/^[a-f0-9]{64}$/.test(expected)) return { code: "pairing_token_missing", error: "Paste the latest pairing token shown in ClearLead Settings." };
+  if (pairing.extensionOrigin && !sameExtensionIdentity(pairing.extensionOrigin, origin)) return { code: "extension_origin_mismatch", error: "This token is paired to a different extension installation. Unpair it in ClearLead Settings, then create a replacement." };
   const actualBuffer = Buffer.from(hashToken(supplied), "hex");
   const expectedBuffer = Buffer.from(expected, "hex");
-  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+  if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) return { code: "pairing_token_mismatch", error: "That token was replaced. Copy the newest token from ClearLead Settings and try once more." };
+  return null;
 }
 function validPackCapability(req, pack, origin) {
-  if (!pack || pack.expiresAt <= Date.now() || pack.capabilityOrigin !== origin) return false;
+  if (!pack || pack.expiresAt <= Date.now() || !sameExtensionIdentity(pack.capabilityOrigin, origin)) return false;
   const supplied = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
   const expected = String(pack.capabilityHash || "");
   if (!supplied || !/^[a-f0-9]{64}$/.test(expected)) return false;
@@ -632,6 +737,12 @@ function createAutofillPack({ verified, applicationProfile, resumeDraft = null, 
     handoff: { canBind: verified.job?.handoffBound !== true, bound: verified.job?.handoffBound === true },
     resume: resumeDraft,
     truth: candidateTruth ? { schema: candidateTruth.schema, fingerprint: candidateTruth.fingerprint.slice(0, 16) } : null,
+    decisionSnapshot: {
+      scorerVersion: "clearlead-ranking/v1",
+      match: verified.job?.match || null,
+      descriptionHash: createHash("sha256").update(String(verified.job?.description || "")).digest("hex"),
+      capturedAt: new Date().toISOString(),
+    },
     profile: safeProfile,
     answers: savedAnswers,
     policy: { submit: "never", safe: ["name", "email", "phone", "location", "public profile links", "saved exact-match answers", "saved relative start availability"], review: ["unsaved eligibility answers", "salary", "unsaved start date", "free-text answers", "unrecognized checkboxes or radio buttons"], blocked: ["EEO/demographic", "disability", "veteran status", "race/ethnicity", "gender", "date of birth", "SSN", "unrecognized legal attestations"] },
@@ -779,7 +890,7 @@ function applicationTarget(job) {
   try { return new URL(job.applyUrl).protocol === "https:" ? job.applyUrl : job.url; }
   catch { return job.url; }
 }
-function findDiscoveredJob(cache, value) {
+function findDiscoveredJob(cache, value, evidence = {}) {
   const target = comparablePage(value);
   if (!target) return {};
   const exact = cache.get(target);
@@ -787,7 +898,61 @@ function findDiscoveredJob(cache, value) {
   for (const job of new Set(cache.values())) {
     if (comparablePage(job.url) === target || comparablePage(applicationTarget(job)) === target) return job;
   }
+  const requestedIds = jobPageIdentifiers(value);
+  if (requestedIds.size) {
+    const requestedFamily = atsHostScope(new URL(target).hostname).family;
+    for (const job of new Set(cache.values())) {
+      for (const candidate of [job.url, applicationTarget(job)]) {
+        let candidateFamily = "generic";
+        try { candidateFamily = atsHostScope(new URL(candidate).hostname).family; } catch { continue; }
+        if (requestedFamily === "generic" || candidateFamily !== requestedFamily) continue;
+        if ([...jobPageIdentifiers(candidate)].some((id) => requestedIds.has(id))) return job;
+      }
+    }
+  }
+  const requestedFamily = atsFamilyFor(value, evidence.atsFamily);
+  const browserCompany = companyHintFromPage(value);
+  const browserTitle = normalizedPageTitle(evidence.pageTitle, browserCompany);
+  if (requestedFamily !== "generic" && browserCompany && browserTitle) {
+    const matches = [...new Set(cache.values())].filter((job) => {
+      const jobFamily = atsFamilyFor(applicationTarget(job));
+      if (jobFamily !== requestedFamily) return false;
+      const company = normalizedIdentity(job.company);
+      const title = normalizedIdentity(job.title);
+      return Boolean(company && title && company === browserCompany && (browserTitle.includes(title) || title.includes(browserTitle)));
+    });
+    if (matches.length === 1) return matches[0];
+  }
   return {};
+}
+function atsFamilyFor(value, hint = "") {
+  if (typeof hint === "string" && hint && hint !== "generic") return hint;
+  try { return atsHostScope(new URL(value).hostname).family; }
+  catch { return "generic"; }
+}
+function companyHintFromPage(value) {
+  try {
+    const page = new URL(value);
+    const pathCompany = page.pathname.match(/\/company\/([^/]+)\/publication\//i)?.[1] || "";
+    return normalizedIdentity(page.searchParams.get("dcr_ci") || pathCompany);
+  } catch { return ""; }
+}
+function normalizedPageTitle(value, company = "") {
+  let title = normalizedIdentity(value).replace(/^easy apply\s+/, "");
+  if (company && title.endsWith(` ${company}`)) title = title.slice(0, -(company.length + 1)).trim();
+  return title;
+}
+function normalizedIdentity(value) {
+  return String(value || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+function jobPageIdentifiers(value) {
+  try {
+    const page = new URL(value);
+    return new Set([
+      ...(page.pathname.match(/[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}/gi) || []),
+      ...(page.pathname.match(/\b\d{8,}\b/g) || []),
+    ].map((item) => item.toLowerCase()));
+  } catch { return new Set(); }
 }
 function comparablePage(value) {
   try {
@@ -855,9 +1020,10 @@ function setSecurityHeaders(res) {
   res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
   res.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
 }
-function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8` }); res.end(fs.readFileSync(file)); }
+function sendFile(res, file, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "cache-control": "no-store" }); res.end(fs.readFileSync(file)); }
 function sendDownload(res, file, filename, type) { res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(fs.readFileSync(file)); }
 function sendBufferDownload(res, buffer, filename, type) { res.writeHead(200, { "content-type": type, "content-length": buffer.length, "content-disposition": `attachment; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(buffer); }
+function sendBufferView(res, buffer, filename, type) { res.writeHead(200, { "content-type": type, "content-length": buffer.length, "content-disposition": `inline; filename="${filename.replace(/[^a-z0-9_.-]/gi, "-")}"`, "cache-control": "no-store", pragma: "no-cache" }); res.end(buffer); }
 function downloadFilename(requested, fallback, extension) {
   const withoutExtension = String(requested || fallback || "tailored-resume").trim().replace(/\.(?:md|pdf)$/i, "");
   const safe = withoutExtension.replace(/[^a-z0-9_. -]/gi, "-").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 120) || "tailored-resume";

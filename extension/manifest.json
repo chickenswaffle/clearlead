@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "ClearLead Application Copilot",
-  "version": "0.9.0",
+  "version": "1.0.3",
   "description": "Captures user-cleared job evidence, fills safe fields from local ClearLead data, and never submits forms.",
-  "permissions": ["activeTab", "storage", "sidePanel"],
+  "permissions": ["activeTab", "storage", "sidePanel", "alarms"],
   "host_permissions": ["http://127.0.0.1:4173/*", "http://localhost:4173/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "Open ClearLead Application Copilot" },

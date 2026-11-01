@@ -27,6 +27,7 @@ export function createCredentialVault(dataDir) {
 
   function save(input) {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dataDir, 0o700);
     const existing = load();
     const incomingProvider = String(input.provider || "").trim().toLowerCase();
     const retainedKey = existing?.provider === incomingProvider ? existing.apiKey : "";
