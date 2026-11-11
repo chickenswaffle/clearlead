@@ -5,12 +5,12 @@ import { searchPublishedRoles } from "../src/search.mjs";
 import { evaluateJobEligibility } from "../src/eligibility.mjs";
 import { analyzeResume } from "../src/resume.mjs";
 
-// The real saved profile that made every airport job disappear: IT targets plus
+// A saved profile like the one that made every airport job disappear: IT targets plus
 // healthcare/education must-haves.
 const ITPROFILE = {
   targetRoles: ["IT Support Specialist", "Help Desk Technician", "Desktop Support Technician"],
-  locations: ["Cedar Hill", "DeSoto", "Dallas", "Arlington"],
-  mustHaves: ["hospital or healthcare", "school or school district", "close to Cedar Hill"],
+  locations: ["Dallas", "Irving", "Arlington"],
+  mustHaves: ["hospital or healthcare", "school or school district", "close to Dallas"],
 };
 const RESUME = {
   text: "Manager, Network Operations. Customer Care Lead. Salesforce, Cisco, VoIP, customer service, SLA.",

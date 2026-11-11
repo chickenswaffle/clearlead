@@ -73,11 +73,11 @@ test("tailoring refuses unverified jobs", () => {
 });
 
 test("tailoring restores a missing header only from the saved application identity", () => {
-  const extracted = `${resume.replace("# Taylor Example\n\n", "")}\n\n## Education\nTaylor Example\ntaylor@example.com\nCedar Hill, TX`;
+  const extracted = `${resume.replace("# Taylor Example\n\n", "")}\n\n## Education\nTaylor Example\ntaylor@example.com\nDallas, TX`;
   const draft = tailorResume(extracted, { status: "live", title: "Support Engineer", description: "Python support" }, {
-    identity: { fullName: "Taylor Example", email: "taylor@example.com", location: "Cedar Hill, TX" },
+    identity: { fullName: "Taylor Example", email: "taylor@example.com", location: "Dallas, TX" },
   });
-  assert.match(draft.markdown, /^# Taylor Example\n\ntaylor@example\.com \| Cedar Hill, TX/);
+  assert.match(draft.markdown, /^# Taylor Example\n\ntaylor@example\.com \| Dallas, TX/);
   assert.equal(draft.markdown.match(/Taylor Example/g)?.length, 1);
   assert.equal(draft.markdown.match(/taylor@example\.com/g)?.length, 1);
   assert.match(draft.groundingNotes[0], /saved resume or application identity/);

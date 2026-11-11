@@ -5,7 +5,7 @@ import { createResumePdf } from "../src/resume-pdf.mjs";
 
 const resume = `# Taylor Example
 
-taylor@example.com | Cedar Hill, TX | linkedin.com/in/taylor
+taylor@example.com | Dallas, TX | linkedin.com/in/taylor
 
 ## Summary
 
@@ -36,7 +36,7 @@ test("resume PDF is valid, selectable, and contains the employer-ready resume", 
 });
 
 test("resume PDF preserves international names instead of dropping Unicode characters", async () => {
-  const international = resume.replace("Taylor Example", "Łukasz Nguyễn").replace("Cedar Hill", "Montréal");
+  const international = resume.replace("Taylor Example", "Łukasz Nguyễn").replace("Dallas", "Montréal");
   const pdf = await createResumePdf(international, { title: "Résumé", author: "Łukasz Nguyễn" });
   const document = await getDocument({ data: new Uint8Array(pdf), disableWorker: true, useSystemFonts: true }).promise;
   const page = await document.getPage(1);
@@ -47,7 +47,7 @@ test("resume PDF preserves international names instead of dropping Unicode chara
 });
 
 test("bundled PDF fonts render CJK, Arabic, and Devanagari names without system fonts", async () => {
-  const international = resume.replace("Taylor Example", "王小明").replace("Cedar Hill, TX", "أحمد علي | अनन्या शर्मा");
+  const international = resume.replace("Taylor Example", "王小明").replace("Dallas, TX", "أحمد علي | अनन्या शर्मा");
   const pdf = await createResumePdf(international, { title: "International resume", author: "王小明" });
   const document = await getDocument({ data: new Uint8Array(pdf), disableWorker: true, useSystemFonts: false }).promise;
   const page = await document.getPage(1);

@@ -26,8 +26,8 @@ test("profile normalization deduplicates values and relevance stays explainable"
 });
 
 test("legacy must-haves migrate to soft preferences instead of silently excluding jobs", () => {
-  const migrated = normalizeProfile({ targetRoles: ["IT Support"], mustHaves: ["hospital or healthcare", "close to Cedar Hill"] });
-  assert.deepEqual(migrated.preferences, ["hospital or healthcare", "close to Cedar Hill"]);
+  const migrated = normalizeProfile({ targetRoles: ["IT Support"], mustHaves: ["hospital or healthcare", "close to Dallas"] });
+  assert.deepEqual(migrated.preferences, ["hospital or healthcare", "close to Dallas"]);
   assert.deepEqual(migrated.mustHaves, []);
   const explicit = normalizeProfile({ targetRoles: ["IT Support"], preferences: ["healthcare"], mustHaves: ["education only"] });
   assert.deepEqual(explicit.preferences, ["healthcare"]);

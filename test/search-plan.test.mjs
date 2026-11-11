@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createSearchPlan, deterministicSearchPlan } from "../src/search-plan.mjs";
 
 test("plain-English DFW search corrects a typo and expands support roles and nearby cities", () => {
-  const plan = deterministicSearchPlan("texh job entry level in DFW near Cedar Hill, hospitals and schools", {
+  const plan = deterministicSearchPlan("texh job entry level in DFW near Dallas, hospitals and schools", {
     resume: { skills: ["windows", "active directory", "technical support"], keywords: ["troubleshooting"], roleHints: ["IT Manager"] },
   });
   assert.equal(plan.seniority, "entry");
@@ -11,7 +11,7 @@ test("plain-English DFW search corrects a typo and expands support roles and nea
   assert.equal(plan.locationRequired, false);
   assert.ok(plan.titles.includes("help desk technician"));
   assert.ok(plan.titles.includes("technical support specialist"));
-  assert.ok(plan.locations.includes("Cedar Hill"));
+  assert.ok(plan.locations.includes("Dallas"));
   assert.ok(plan.locations.includes("Plano"));
   assert.ok(plan.locations.includes("McKinney"));
   assert.deepEqual(plan.sectors, ["healthcare", "education"]);
@@ -40,7 +40,7 @@ test("valid AI expansion cannot change fixed DFW geography", async () => {
     generateText: async () => JSON.stringify({ titles: ["Help Desk Technician", "IT Support Specialist"], keywords: ["troubleshooting"], sectors: ["education"] , locations: ["New York"] }),
   });
   assert.equal(plan.mode, "ai");
-  assert.ok(plan.locations.includes("Cedar Hill"));
+  assert.ok(plan.locations.includes("Dallas"));
   assert.equal(plan.locations.includes("New York"), false);
 });
 
